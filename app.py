@@ -1,10 +1,4 @@
-# app.py — Energy Plan Analyzer
-# - Robust CSV loader (Heb/Eng, UTF-8/CP1255, header autodetect)
-# - Light/Dark mode toggle (top-right)
-# - Plot defaults: Day #6200EE, Night #03DAC6
-# - Plans 1–3 shown; columns for Plan 4 & Plan 5 with dedicated [+ Add] / [Remove] buttons
-# - Cost Comparison: winner row keeps default background; text only is light green (#90EE90)
-
+# app.py — Energy Plan Analyzer (Week/Month, robust CSV, theme toggle, plans add/remove)
 import io, re
 import numpy as np
 import pandas as pd
@@ -45,7 +39,6 @@ with hdr_l:
         unsafe_allow_html=True,
     )
 with hdr_r:
-    # toggle (newer Streamlit) or checkbox (fallback)
     if hasattr(st, "toggle"):
         st.session_state.dark_mode = bool(st.toggle("🌙 Dark mode", value=st.session_state.dark_mode))
     else:
@@ -155,6 +148,7 @@ def load_csv(file) -> pd.DataFrame:
 
 # ===================== Aggregation & Plot =====================
 def aggregate_week(df: pd.DataFrame) -> pd.DataFrame:
+    """Weekly stacked totals: day_kwh, night_kwh by ISO week."""
     if df.empty:
         return pd.DataFrame(columns=["label", "day_kwh", "night_kwh"])
     is_night = (df["hour"] >= NIGHT_START) | (df["hour"] < NIGHT_END)
@@ -162,6 +156,18 @@ def aggregate_week(df: pd.DataFrame) -> pd.DataFrame:
     work["is_night"] = is_night.astype(int)
     iso = work["datetime"].dt.isocalendar()
     work["label"] = iso.year.astype(str) + "-W" + iso.week.astype(str)
+    grp = work.groupby(["label", "is_night"])["kwh"].sum().unstack(fill_value=0)
+    grp.columns = ["day_kwh", "night_kwh"]
+    return grp.reset_index()
+
+def aggregate_month(df: pd.DataFrame) -> pd.DataFrame:
+    """Monthly stacked totals: day_kwh, night_kwh by YYYY-MM."""
+    if df.empty:
+        return pd.DataFrame(columns=["label", "day_kwh", "night_kwh"])
+    is_night = (df["hour"] >= NIGHT_START) | (df["hour"] < NIGHT_END)
+    work = df.copy()
+    work["is_night"] = is_night.astype(int)
+    work["label"] = work["datetime"].dt.to_period("M").astype(str)  # e.g., 2025-07
     grp = work.groupby(["label", "is_night"])["kwh"].sum().unstack(fill_value=0)
     grp.columns = ["day_kwh", "night_kwh"]
     return grp.reset_index()
@@ -192,7 +198,7 @@ def plot_stacked(df_agg: pd.DataFrame, title: str, day_color: str, night_color: 
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=AXIS_TEXT_SIZE, color=axis_color)
-    ax.set_xlabel("Week", fontsize=AXIS_TEXT_SIZE, color=axis_color)
+    ax.set_xlabel("Period", fontsize=AXIS_TEXT_SIZE, color=axis_color)
     ax.set_ylabel("Consumption (kWh)", fontsize=AXIS_TEXT_SIZE, color=axis_color)
     ax.set_title(title, fontsize=AXIS_TEXT_SIZE+2, color=axis_color)
 
@@ -240,7 +246,7 @@ with left:
     uploaded = st.file_uploader("Electricity CSV", type=["csv"])
 
     st.subheader("Aggregation")
-    st.radio("Choose", ["Week"], horizontal=True, index=0, key="gran")  # only Week for now
+    st.radio("Choose aggregation period", ["Week", "Month"], horizontal=True, index=0, key="gran")
 
     # Colors (locked by default)
     if ALLOW_COLOR_CHANGE:
@@ -260,8 +266,12 @@ with right:
     data = load_csv(uploaded)
     if not data.empty:
         st.caption(f"Loaded {len(data):,} rows. Range: {data['datetime'].min().date()} → {data['datetime'].max().date()}")
-        agg_week = aggregate_week(data)
-        plot_stacked(agg_week, "Consumption (Week) - Day vs Night", day_color, night_color, dark=st.session_state.dark_mode)
+        if st.session_state.gran == "Week":
+            agg_df = aggregate_week(data)
+        else:
+            agg_df = aggregate_month(data)
+        plot_stacked(agg_df, f"Consumption ({st.session_state.gran}) - Day vs Night",
+                     day_color, night_color, dark=st.session_state.dark_mode)
     else:
         st.info("Upload a CSV to see plot and pricing.")
     st.markdown('</div>', unsafe_allow_html=True)
