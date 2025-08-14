@@ -1,4 +1,4 @@
-# streamlit_power_dashboard_dynamic_plans_dark.py
+# streamlit_power_dashboard_dynamic_plans_dark_fullwidth.py
 
 import io
 import re
@@ -46,13 +46,15 @@ st.markdown("""
             --text: #e6edf3;
             --accent: #1f6feb;
             --accent-hover: #1a60d1;
+            --row-green: #163e29;
+            --row-green-text: #d1f7d6;
         }
         .stApp { background-color: var(--bg); color: var(--text); }
         h1, h2, h3, h4, h5 { color: var(--text); }
         .block-container { padding-top: 1rem; padding-bottom: 1rem; }
 
         /* Card-like columns */
-        .stColumn > div {
+        .card {
             background: var(--card);
             border-radius: 16px;
             padding: 1rem;
@@ -188,8 +190,9 @@ def plot_stacked(df_agg: pd.DataFrame, title: str, color_day: str, color_night: 
         spine.set_color('#8b949e')
 
     x = np.arange(len(labels))
-    ax.bar(x, day, label="Day", color="#87CEEB")      # skyblue on dark
-    ax.bar(x, night, bottom=day, label="Night", color="#000080")  # navy
+    # Use chosen colors:
+    ax.bar(x, day, label="Day", color=color_day or "#87CEEB")
+    ax.bar(x, night, bottom=day, label="Night", color=color_night or "#000080")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
     ax.set_xlabel("Period", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
@@ -238,11 +241,12 @@ if "plan5_visible" not in st.session_state:
     st.session_state.plan5_visible = False
 
 # =============================
-# Layout
+# TOP: Controls + Chart (two columns)
 # =============================
 left, right = st.columns([4, 8], gap="large")
 
 with left:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Upload CSV")
     uploaded = st.file_uploader("Electricity CSV", type=["csv"])
 
@@ -257,8 +261,10 @@ with left:
 
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.header("Dashboard")
     data = load_csv(uploaded)
     if not data.empty:
@@ -267,9 +273,16 @@ with right:
         st.info("Upload a CSV to see plot and pricing.")
     agg_df = aggregate(data, granularity)
     plot_stacked(agg_df, f"Consumption ({granularity}) - Day vs Night", day_color, night_color)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.subheader("Pricing Plans")
+# =============================
+# BOTTOM: Full-width Plans + Cost Comparison
+# =============================
+st.markdown("## ")
+bottom = st.container()
+with bottom:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("Pricing Plans (Full Width)")
 
     # 5 columns total: [Add4] [Add5] [Plan1] [Plan2] [Plan3]
     cols = st.columns(5, gap="large")
@@ -324,7 +337,9 @@ with right:
     if st.session_state.plan5_visible:
         plans.append(plan_card(cols[1], 5, default_mode="All day", default_discount=0.0))
 
-    st.markdown("#### Cost Comparison")
+    st.markdown("---")
+    st.subheader("Cost Comparison")
+
     if not data.empty:
         total_kwh = data["consumption_kwh"].sum()
         base_cost = total_kwh * ref_price
@@ -334,20 +349,29 @@ with right:
             rows.append((f"Plan {i}", c, base_cost - c))
 
         df_costs = pd.DataFrame(rows, columns=["Plan", "Total cost (NIS)", "Savings vs ref. (NIS)"])
-        df_costs["Total cost (NIS)"] = df_costs["Total cost (NIS)"].round(1)
-        df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].round(1)
+
+        # Force display with exactly ONE decimal place
+        df_costs["Total cost (NIS)"] = df_costs["Total cost (NIS)"].astype(float)
+        df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
 
         # Only pick the cheapest *actual* plan (ignore reference)
         plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
         min_cost = plan_rows["Total cost (NIS)"].min() if not plan_rows.empty else np.inf
 
         def highlight_best(row):
-            if row["Plan"].startswith("Plan") and row["Total cost (NIS)"] == min_cost:
-                # dark-friendly green highlight
-                return ['background-color: #163e29; color: #d1f7d6; font-weight: 600'] * len(row)
+            if row["Plan"].startswith("Plan") and float(row["Total cost (NIS)"]) == float(min_cost):
+                return ['background-color: var(--row-green); color: var(--row-green-text); font-weight: 600'] * len(row)
             else:
                 return [''] * len(row)
 
-        st.dataframe(df_costs.style.apply(highlight_best, axis=1), use_container_width=True)
+        styled = (
+            df_costs
+            .style
+            .format({"Total cost (NIS)": "{:.1f}", "Savings vs ref. (NIS)": "{:.1f}"})
+            .apply(highlight_best, axis=1)
+        )
+        st.dataframe(styled, use_container_width=True)
     else:
         st.info("No data to compute costs.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
