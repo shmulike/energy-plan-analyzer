@@ -280,4 +280,88 @@ def plan_card(col, idx, default_mode="All day", default_price=None, default_disc
 
         mode = st.selectbox(f"Mode P{idx}", ["All day","By hour"],
                             index=0 if default_mode=="All day" else 1, key=f"mode_{idx}")
-        price_val = st.number_input(f"Price
+        price_val = st.number_input(f"Price P{idx} (NIS/kWh)", value=float(default_price),
+                                    step=0.01, format="%.4f", key=f"price_{idx}")
+        discount = st.number_input(f"Discount % P{idx}", value=float(default_discount),
+                                   step=0.1, format="%.1f", key=f"disc_{idx}")
+        if mode == "By hour":
+            c1, c2 = st.columns(2)
+            with c1:
+                start_h = st.number_input("Start", min_value=0, max_value=23,
+                                          value=int(default_start), step=1, key=f"start_{idx}")
+            with c2:
+                end_h   = st.number_input("End",   min_value=0, max_value=23,
+                                          value=int(default_end), step=1, key=f"end_{idx}")
+        else:
+            start_h, end_h = 0, 0
+        return (mode, price_val, discount, start_h, end_h)
+
+# Plans 1..3 (always visible) left -> right
+plans.append(plan_card(cols[0], 1, default_mode="All day", default_discount=6.0))
+plans.append(plan_card(cols[1], 2, default_mode="By hour", default_discount=20.0, default_start=23, default_end=7))
+plans.append(plan_card(cols[2], 3, default_mode="All day", default_discount=0.0))
+
+# Plan 4
+with cols[3]:
+    if not st.session_state.plan4_visible:
+        if st.button("＋ Add Plan 4", key="add4"):
+            st.session_state.plan4_visible = True
+            st.experimental_rerun()
+    else:
+        plans.append(plan_card(cols[3], 4, default_mode="All day", allow_remove=True))
+
+# Plan 5
+with cols[4]:
+    if not st.session_state.plan5_visible:
+        if st.button("＋ Add Plan 5", key="add5"):
+            st.session_state.plan5_visible = True
+            st.experimental_rerun()
+    else:
+        plans.append(plan_card(cols[4], 5, default_mode="All day", allow_remove=True))
+
+st.markdown("---")
+st.subheader("Cost Comparison")
+
+if not data.empty:
+    total_kwh = data["consumption_kwh"].sum()
+    base_cost = total_kwh * ref_price
+    rows = [("Reference (no discount)", base_cost, 0.0)]
+    for i, p in enumerate(plans, start=1):
+        c = compute_cost(data, p[1], p[0], p[2], p[3], p[4])
+        rows.append((f"Plan {i}", c, base_cost - c))
+
+    df_costs = pd.DataFrame(rows, columns=["Plan","Total cost (NIS)","Savings vs ref. (NIS)"])
+    # one decimal everywhere
+    df_costs["Total cost (NIS)"]      = df_costs["Total cost (NIS)"].astype(float)
+    df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
+
+    # --- Winner detection that's tolerant to rounding ---
+    is_plan = df_costs["Plan"].str.startswith("Plan")
+    min_cost = df_costs.loc[is_plan, "Total cost (NIS)"].min() if is_plan.any() else np.inf
+    winners = is_plan & np.isclose(df_costs["Total cost (NIS)"], min_cost, rtol=0.0, atol=0.05)
+
+    # --- Always light green + black text for the best plan row ---
+    WIN_CELL = "background-color: #90EE90 !important; color: #000000 !important; font-weight: 700 !important;"
+
+    def highlight_rows(row):
+        return [WIN_CELL if winners.loc[row.name] else "" for _ in row]
+
+    # Base table styles (theme-aware but not overriding our winner style)
+    base_styles = [
+        {"selector":"th","props":[("background-color", DF_TH_BG),("color", DF_TEXT),("border", f"1px solid {BORDER}")]},
+        {"selector":"td","props":[("background-color", DF_TD_BG),("color", DF_TEXT),("border", f"1px solid {BORDER}")]},
+        {"selector":"tr","props":[("background-color", DF_TD_BG)]},
+    ]
+
+    styled = (
+        df_costs
+        .style
+        .set_table_styles(base_styles)
+        .format({"Total cost (NIS)":"{:.1f}", "Savings vs ref. (NIS)":"{:.1f}"})
+        .apply(highlight_rows, axis=1)
+    )
+    st.dataframe(styled, use_container_width=True)
+else:
+    st.info("No data to compute costs.")
+
+st.markdown('</div>', unsafe_allow_html=True)
