@@ -1,4 +1,4 @@
-# streamlit_power_dashboard_dynamic_plans.py
+# streamlit_power_dashboard_dynamic_plans_apple_style.py
 
 import io
 import re
@@ -23,6 +23,38 @@ MAX_PLANS = 5  # max number of plan columns
 # Page setup
 # =============================
 st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide")
+
+# =============================
+# Apple-like minimal style
+# =============================
+st.markdown("""
+    <style>
+        .stApp {
+            background-color: #f9f9fb;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+        h1, h2, h3, h4 {
+            font-weight: 600;
+            color: #1d1d1f;
+        }
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        .stColumn > div {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 1rem;
+            box-shadow: 0px 4px 12px rgba(0,0,0,0.05);
+        }
+        .dataframe tbody tr {
+            background: #ffffff;
+        }
+        .dataframe tbody tr:hover {
+            background: #f5f5f7;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # =============================
 # Helpers
@@ -145,7 +177,6 @@ def compute_cost(df: pd.DataFrame, price_kwh: float, mode: str, discount_pct: fl
         end_hour = int(end_hour)
     except Exception:
         return 0.0
-
     cons = df.copy()
     cons["hour"] = cons["datetime"].dt.hour
     total = cons["consumption_kwh"].sum()
@@ -189,7 +220,6 @@ with left:
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
 
-    # Add Plan button if we can
     if st.session_state.visible_plans < MAX_PLANS:
         if st.button("+ Add Plan"):
             st.session_state.visible_plans += 1
@@ -234,13 +264,15 @@ with right:
         df_costs["Total cost (NIS)"] = df_costs["Total cost (NIS)"].round(1)
         df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].round(1)
 
-        # Highlight best cost
-        min_cost = df_costs["Total cost (NIS)"].min()
+        plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
+        min_cost = plan_rows["Total cost (NIS)"].min()
+
         def highlight_best(row):
-            if row["Total cost (NIS)"] == min_cost:
-                return ['background-color: #c6efce; font-weight: bold'] * len(row)
+            if row["Plan"].startswith("Plan") and row["Total cost (NIS)"] == min_cost:
+                return ['background-color: #c6efce; font-weight: bold; color: #1d1d1f'] * len(row)
             else:
                 return [''] * len(row)
+
         st.dataframe(df_costs.style.apply(highlight_best, axis=1), use_container_width=True)
     else:
         st.info("No data to compute costs.")
