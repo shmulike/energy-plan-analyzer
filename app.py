@@ -1,4 +1,4 @@
-# app.py — Energy Plan Analyzer (dark/light with fixed plot colors)
+# app.py — Energy Plan Analyzer (Light/Dark switch, fixed table highlight, fixed plot legend)
 import io, re
 import numpy as np
 import pandas as pd
@@ -11,18 +11,16 @@ PLOT_WIDTH_INCHES  = 12
 PLOT_HEIGHT_INCHES = 6
 AXIS_TEXT_SIZE     = 10
 LEGEND_TEXT_SIZE   = 10
-NIGHT_START, NIGHT_END = 23, 7   # plot night window
+NIGHT_START, NIGHT_END = 23, 7
 MAX_PLANS = 5
 
-# Your requested default plot colors (used in BOTH themes)
-# Day bars = #6200EE, Night bars = #03DAC6
+# Default plot colors (used in BOTH themes unless you change them)
 DARK_MODE_DAY_COLOR    = "#6200EE"
 DARK_MODE_NIGHT_COLOR  = "#03DAC6"
 LIGHT_MODE_DAY_COLOR   = "#6200EE"
 LIGHT_MODE_NIGHT_COLOR = "#03DAC6"
 
-# Keep colors fixed (no user color picker)
-ALLOW_USER_COLOR_PICKER = False
+ALLOW_USER_COLOR_PICKER = False  # keep color pickers hidden
 
 # ===================== Page setup =====================
 st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide")
@@ -31,9 +29,8 @@ st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide"
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = True  # default to dark
 
-# Render theme switch on the top row (right side), with fallback for older Streamlit
-hdr_left, hdr_spacer, hdr_right = st.columns([10, 1, 2])
-with hdr_left:
+top_l, top_sp, top_r = st.columns([9, 1, 2])
+with top_l:
     st.markdown(
         """
 <div style="margin:0 0 .3rem 0;">
@@ -45,60 +42,69 @@ with hdr_left:
 """,
         unsafe_allow_html=True,
     )
-with hdr_right:
-    try:
-        dark_choice = st.toggle("Dark mode", value=st.session_state.dark_mode)
-    except Exception:
-        dark_choice = st.checkbox("Dark mode", value=st.session_state.dark_mode)
-    if dark_choice != st.session_state.dark_mode:
-        st.session_state.dark_mode = bool(dark_choice)
+with top_r:
+    # Visible theme switch (toggle if available, else checkbox fallback)
+    if hasattr(st, "toggle"):
+        dark_choice = st.toggle("🌙 Dark mode", value=st.session_state.dark_mode, key="__dark_toggle__")
+    else:
+        dark_choice = st.checkbox("🌙 Dark mode", value=st.session_state.dark_mode, key="__dark_checkbox__")
+    st.session_state.dark_mode = bool(dark_choice)
 
 # ===================== Theming (CSS) =====================
 if st.session_state.dark_mode:
-    css = """
-    :root{
-      --bg:#0f1115;--card:#161b22;--muted:#8b949e;--border:#30363d;--text:#e6edf3;
-      --accent:#0A84FF;--accent-hover:#066de6;
-      --row-win-bg:#1f5136;--row-win-fg:#ffffff;
-    }
-    """
+    # Palette for Dark
+    BG        = "#0f1115"
+    CARD      = "#161b22"
+    MUTED     = "#8b949e"
+    BORDER    = "#30363d"
+    TEXT      = "#e6edf3"
+    ACCENT    = "#0A84FF"
+    ACCENT_H  = "#066de6"
+    DF_TH_BG  = CARD
+    DF_TD_BG  = CARD
+    DF_TEXT   = TEXT
+    WIN_BG    = "#1f5136"  # <- winner row background (dark green)
+    WIN_FG    = "#ffffff"  # <- winner row text
 else:
-    css = """
-    :root{
-      --bg:#f5f5f7;--card:#ffffff;--muted:#6e6e73;--border:#e5e5ea;--text:#1d1d1f;
-      --accent:#0A84FF;--accent-hover:#0066d6;
-      --row-win-bg:#c8f3dc;--row-win-fg:#083c2a;
-    }
-    """
+    # Palette for Light
+    BG        = "#f5f5f7"
+    CARD      = "#ffffff"
+    MUTED     = "#6e6e73"
+    BORDER    = "#e5e5ea"
+    TEXT      = "#1d1d1f"
+    ACCENT    = "#0A84FF"
+    ACCENT_H  = "#0066d6"
+    DF_TH_BG  = CARD
+    DF_TD_BG  = CARD
+    DF_TEXT   = TEXT
+    WIN_BG    = "#c8f3dc"  # <- winner row background (mint)
+    WIN_FG    = "#083c2a"  # <- winner row text (deep green)
 
 st.markdown(
     f"""
 <style>
-{css}
-.stApp{{background-color:var(--bg);color:var(--text);}}
+.stApp{{background-color:{BG};color:{TEXT};}}
 .block-container{{padding-top:.6rem;padding-bottom:.6rem;}}
-.card{{background:var(--card);border-radius:16px;padding:1rem;border:1px solid var(--border);
+.card{{background:{CARD};border-radius:16px;padding:1rem;border:1px solid {BORDER};
       box-shadow:0 8px 24px rgba(0,0,0,.12);}}
-
-/* headings */
-h1,h2,h3,h4,h5{{color:var(--text);margin:0 0 .6rem 0;}}
+h1,h2,h3,h4,h5{{color:{TEXT};margin:0 0 .6rem 0;}}
 
 /* inputs */
 input,textarea,select,.stTextInput input,.stNumberInput input,
 .stSelectbox div[role="button"],.stTextArea textarea{{
-  background:transparent!important;color:var(--text)!important;border:1px solid var(--border)!important;
+  background:transparent!important;color:{TEXT}!important;border:1px solid {BORDER}!important;
   border-radius:12px!important;
 }}
-.stNumberInput button,.stSelectbox svg{{color:var(--text)!important;}}
+.stNumberInput button,.stSelectbox svg{{color:{TEXT}!important;}}
 
 /* buttons */
-.stButton>button{{background:var(--accent);color:#fff;border-radius:12px;border:none;
+.stButton>button{{background:{ACCENT};color:#fff;border-radius:12px;border:none;
   padding:.45rem .9rem;font-weight:600;box-shadow:0 6px 16px rgba(10,132,255,.25);}}
-.stButton>button:hover{{background:var(--accent-hover);}}
+.stButton>button:hover{{background:{ACCENT_H};}}
 
 /* dataframe base to avoid odd backgrounds */
-.dataframe th{{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--border)!important;}}
-.dataframe td{{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--border)!important;}}
+.dataframe th{{background:{DF_TH_BG}!important;color:{DF_TEXT}!important;border:1px solid {BORDER}!important;}}
+.dataframe td{{background:{DF_TD_BG}!important;color:{DF_TEXT}!important;border:1px solid {BORDER}!important;}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -137,7 +143,7 @@ def load_csv(file) -> pd.DataFrame:
     for k, names in candidates.items():
         for n in names:
             for c in df.columns:
-                if n == c or re.sub(r"\\s+","",n) == re.sub(r"\\s+","",c):
+                if n == c or re.sub(r"\s+","",n) == re.sub(r"\s+","",c):
                     col_map[k] = c; break
             if col_map[k]: break
     if col_map["date"] is None:
@@ -184,27 +190,27 @@ def plot_stacked(df_agg, title, day_color, night_color, dark: bool):
     fig = plt.figure(figsize=(PLOT_WIDTH_INCHES, PLOT_HEIGHT_INCHES))
     ax = fig.add_subplot(111)
     if dark:
-        fig.patch.set_facecolor('#0f1115'); ax.set_facecolor('#0f1115')
-        axis_color = '#e6edf3'; spine_color = '#8b949e'
-        legend_face = '#161b22'; legend_edge = '#30363d'; legend_text = 'white'
+        fig.patch.set_facecolor(BG); ax.set_facecolor(BG)
+        axis_color = TEXT; spine_color = MUTED
+        legend_face = CARD; legend_edge = BORDER; legend_text = "#FFFFFF"
     else:
-        fig.patch.set_facecolor('#f5f5f7'); ax.set_facecolor('#ffffff')
-        axis_color = '#1d1d1f'; spine_color = '#d2d2d7'
-        legend_face = '#ffffff'; legend_edge = '#e5e5ea'; legend_text = '#1d1d1f'
+        fig.patch.set_facecolor(BG); ax.set_facecolor("#FFFFFF")
+        axis_color = TEXT; spine_color = "#d2d2d7"
+        legend_face = "#FFFFFF"; legend_edge = BORDER; legend_text = "#1d1d1f"
 
     for s in ax.spines.values(): s.set_color(spine_color)
     x = np.arange(len(labels))
     ax.bar(x, day,   label="Day",   color=day_color)
     ax.bar(x, night, bottom=day, label="Night", color=night_color)
 
-    ax.set_xticks(x); ax.set_xticklabels(labels, rotation=45, ha="right",
-                                         fontsize=AXIS_TEXT_SIZE, color=axis_color)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=AXIS_TEXT_SIZE, color=axis_color)
     ax.set_xlabel("Period", fontsize=AXIS_TEXT_SIZE, color=axis_color)
     ax.set_ylabel("Consumption (kWh)", fontsize=AXIS_TEXT_SIZE, color=axis_color)
     ax.set_title(title, fontsize=AXIS_TEXT_SIZE+2, color=axis_color)
 
     leg = ax.legend(fontsize=LEGEND_TEXT_SIZE, facecolor=legend_face, edgecolor=legend_edge)
-    for txt in leg.get_texts(): txt.set_color(legend_text)  # ensure contrast in both themes
+    for txt in leg.get_texts(): txt.set_color(legend_text)  # ensure contrast
 
     ax.tick_params(colors=axis_color)
     fig.tight_layout()
@@ -237,25 +243,28 @@ if "plan5_visible" not in st.session_state: st.session_state.plan5_visible = Fal
 left, right = st.columns([4,8], gap="large")
 
 with left:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Upload CSV"); uploaded = st.file_uploader("Electricity CSV", type=["csv"])
-    st.subheader("Aggregation"); granularity = st.radio("Choose", ["Week","Month"], horizontal=True, index=1)
+    st.markdown(f'<div class="card">', unsafe_allow_html=True)
+    st.subheader("Upload CSV")
+    uploaded = st.file_uploader("Electricity CSV", type=["csv"])
 
-    # Colors from theme (no user picker)
+    st.subheader("Aggregation")
+    granularity = st.radio("Choose", ["Week","Month"], horizontal=True, index=1)
+
+    # Theme-derived plot colors (no user picker)
     if st.session_state.dark_mode:
         day_color, night_color = DARK_MODE_DAY_COLOR, DARK_MODE_NIGHT_COLOR
     else:
         day_color, night_color = LIGHT_MODE_DAY_COLOR, LIGHT_MODE_NIGHT_COLOR
 
     if ALLOW_USER_COLOR_PICKER:
-        st.warning("Color picker disabled by configuration.")
+        st.info("Color picker disabled by configuration.")
 
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown(f'<div class="card">', unsafe_allow_html=True)
     st.subheader("Dashboard")
     data = load_csv(uploaded)
     if not data.empty:
@@ -268,10 +277,9 @@ with right:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ===================== BOTTOM: Full‑width Plans + Cost Comparison =====================
-st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown(f'<div class="card">', unsafe_allow_html=True)
 st.subheader("Pricing Plans")
 
-# Plans 1..5 left → right (with add/remove for 4 and 5)
 cols = st.columns(5, gap="large")
 plans = []
 
@@ -308,12 +316,12 @@ def plan_card(col, idx, default_mode="All day", default_price=None, default_disc
             start_h, end_h = 0, 0
         return (mode, price_val, discount, start_h, end_h)
 
-# Plans 1..3 (always visible) in cols[0..2]
+# Plans 1..3 (always visible) left -> right
 plans.append(plan_card(cols[0], 1, default_mode="All day", default_discount=6.0))
 plans.append(plan_card(cols[1], 2, default_mode="By hour", default_discount=20.0, default_start=23, default_end=7))
 plans.append(plan_card(cols[2], 3, default_mode="All day", default_discount=0.0))
 
-# col[3]: Plan 4 add/remove
+# Plan 4
 with cols[3]:
     if not st.session_state.plan4_visible:
         if st.button("＋ Add Plan 4", key="add4"):
@@ -322,7 +330,7 @@ with cols[3]:
     else:
         plans.append(plan_card(cols[3], 4, default_mode="All day", allow_remove=True))
 
-# col[4]: Plan 5 add/remove
+# Plan 5
 with cols[4]:
     if not st.session_state.plan5_visible:
         if st.button("＋ Add Plan 5", key="add5"):
@@ -343,7 +351,7 @@ if not data.empty:
         rows.append((f"Plan {i}", c, base_cost - c))
 
     df_costs = pd.DataFrame(rows, columns=["Plan","Total cost (NIS)","Savings vs ref. (NIS)"])
-    # exactly one decimal
+    # one decimal everywhere
     df_costs["Total cost (NIS)"]      = df_costs["Total cost (NIS)"].astype(float)
     df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
 
@@ -351,17 +359,19 @@ if not data.empty:
     plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
     min_cost = plan_rows["Total cost (NIS)"].min() if not plan_rows.empty else np.inf
 
+    # Base table styles with fixed HEX colors (no CSS variables inside the Styler)
     base_styles = [
-        {"selector":"th","props":[("background-color","var(--card)"),("color","var(--text)"),("border","1px solid var(--border)")]},
-        {"selector":"td","props":[("background-color","var(--card)"),("color","var(--text)"),("border","1px solid var(--border)")]},
-        {"selector":"tr","props":[("background-color","var(--card)")]},
+        {"selector":"th","props":[("background-color", DF_TH_BG),("color", DF_TEXT),("border", f"1px solid {BORDER}")]},
+        {"selector":"td","props":[("background-color", DF_TD_BG),("color", DF_TEXT),("border", f"1px solid {BORDER}")]},
+        {"selector":"tr","props":[("background-color", DF_TD_BG)]},
     ]
+
+    WIN_CELL  = f"background-color: {WIN_BG} !important; color: {WIN_FG} !important; font-weight: 700 !important;"
 
     def highlight_best(row):
         if row["Plan"].startswith("Plan") and float(row["Total cost (NIS)"]) == float(min_cost):
-            # high-contrast winning row
-            return [f'background-color: var(--row-win-bg); color: var(--row-win-fg); font-weight: 700'] * len(row)
-        return [''] * len(row)
+            return [WIN_CELL]*len(row)
+        return ['']*len(row)
 
     styled = (
         df_costs
