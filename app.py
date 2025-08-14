@@ -341,7 +341,7 @@ if not data.empty:
     winners = is_plan & np.isclose(df_costs["Total cost (NIS)"], min_cost, rtol=0.0, atol=0.05)
 
     # --- Always light green + black text for the best plan row ---
-    WIN_CELL = "background-color: #90EE90 !important; color: #000000 !important; font-weight: 700 !important;"
+    WIN_CELL = "background-color: #90EE90 !important; color: #88E788 !important; font-weight: 700 !important;"
 
     def highlight_rows(row):
         return [WIN_CELL if winners.loc[row.name] else "" for _ in row]
