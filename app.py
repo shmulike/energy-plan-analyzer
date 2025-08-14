@@ -1,4 +1,4 @@
-# streamlit_power_dashboard_dynamic_plans_apple_style.py
+# streamlit_power_dashboard_dynamic_plans_dark.py
 
 import io
 import re
@@ -17,7 +17,7 @@ AXIS_TEXT_SIZE = 10
 LEGEND_TEXT_SIZE = 10
 NIGHT_START = 23
 NIGHT_END = 7  # exclusive
-MAX_PLANS = 5  # max number of plan columns
+MAX_PLANS = 5  # absolute max; starts with 3 visible
 
 # =============================
 # Page setup
@@ -30,32 +30,57 @@ st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide"
 st.markdown("""
 ### Electricity Consumption Dashboard
 Created by **Shmulik Edelman**, this tool helps you upload and analyze your household or business electricity usage.  
-Compare up to five custom pricing plans, visualize day vs. night consumption, and instantly find which plan saves you the most money.
+Compare up to five custom pricing plans, visualize day vs. night consumption, and instantly see which plan saves you the most money.
 """)
 
 # =============================
-# Apple-like minimal style
+# Dark theme styling (widgets + panels)
 # =============================
 st.markdown("""
     <style>
-        .stApp {
-            background-color: #f9f9fb;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        :root {
+            --bg: #0f1115;
+            --card: #161b22;
+            --muted: #8b949e;
+            --border: #30363d;
+            --text: #e6edf3;
+            --accent: #1f6feb;
+            --accent-hover: #1a60d1;
         }
-        h1, h2, h3, h4 {
-            font-weight: 600;
-            color: #1d1d1f;
-        }
-        .block-container {
-            padding-top: 1rem;
-            padding-bottom: 1rem;
-        }
+        .stApp { background-color: var(--bg); color: var(--text); }
+        h1, h2, h3, h4, h5 { color: var(--text); }
+        .block-container { padding-top: 1rem; padding-bottom: 1rem; }
+
+        /* Card-like columns */
         .stColumn > div {
-            background: #ffffff;
+            background: var(--card);
             border-radius: 16px;
             padding: 1rem;
-            box-shadow: 0px 4px 12px rgba(0,0,0,0.05);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            border: 1px solid var(--border);
         }
+
+        /* Inputs (dark) */
+        input, textarea, select, .stTextInput input, .stNumberInput input,
+        .stSelectbox div[role="button"], .stTextArea textarea {
+            background-color: #0d1117 !important;
+            color: var(--text) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 12px !important;
+        }
+        .stNumberInput button, .stSelectbox svg { color: var(--text) !important; }
+
+        /* Buttons */
+        .stButton>button {
+            background: var(--accent); color: #fff; border-radius: 12px;
+            border: none; padding: 0.5rem 0.9rem; font-weight: 600;
+            box-shadow: 0 6px 16px rgba(31,111,235,0.35);
+        }
+        .stButton>button:hover { background: var(--accent-hover); }
+
+        /* Dataframe rows */
+        .dataframe tbody tr { background: #0d1117; color: var(--text); }
+        .dataframe tbody tr:hover { background: #11151c; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -89,6 +114,7 @@ def load_csv(file) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=["datetime", "consumption_kwh"])
     df.columns = [str(c).strip() for c in df.columns]
+
     col_map = {"date": None, "time": None, "cons": None}
     candidates = {
         "date": ["תאריך", "Date"],
@@ -98,32 +124,28 @@ def load_csv(file) -> pd.DataFrame:
     for key, names in candidates.items():
         for n in names:
             for c in df.columns:
-                if n == c or re.sub(r'\s+', '', n) == re.sub(r'\s+', '', c):
-                    col_map[key] = c
-                    break
+                if n == c or re.sub(r'\\s+', '', n) == re.sub(r'\\s+', '', c):
+                    col_map[key] = c; break
             if col_map[key]: break
+
     if col_map["date"] is None:
         for c in df.columns:
-            if "/" in str(df[c].iloc[0]) or "-" in str(df[c].iloc[0]):
-                col_map["date"] = c
-                break
+            sample = str(df[c].dropna().astype(str).head(5).tolist())
+            if "/" in sample or "-" in sample: col_map["date"] = c; break
     if col_map["time"] is None:
         for c in df.columns:
-            if ":" in str(df[c].iloc[0]):
-                col_map["time"] = c
-                break
+            sample = str(df[c].dropna().astype(str).head(5).tolist())
+            if ":" in sample: col_map["time"] = c; break
     if col_map["cons"] is None:
-        num_cols = []
         for c in df.columns:
             try:
-                pd.to_numeric(df[c], errors="raise")
-                num_cols.append(c)
+                pd.to_numeric(df[c], errors="raise"); col_map["cons"] = c; break
             except Exception:
-                pass
-        if num_cols:
-            col_map["cons"] = num_cols[0]
+                continue
+
     if None in col_map.values():
         return pd.DataFrame(columns=["datetime", "consumption_kwh"])
+
     cons = pd.to_numeric(df[col_map["cons"]], errors="coerce")
     dt = pd.to_datetime(df[col_map["date"]].astype(str) + " " + df[col_map["time"]].astype(str),
                         dayfirst=True, errors="coerce")
@@ -157,16 +179,25 @@ def plot_stacked(df_agg: pd.DataFrame, title: str, color_day: str, color_night: 
     labels = df_agg["label"].tolist()
     day = df_agg["day_kwh"].values
     night = df_agg["night_kwh"].values
+
     fig = plt.figure(figsize=(PLOT_WIDTH_INCHES, PLOT_HEIGHT_INCHES))
+    ax = fig.add_subplot(111)
+    fig.patch.set_facecolor('#0f1115')
+    ax.set_facecolor('#0f1115')
+    for spine in ax.spines.values():
+        spine.set_color('#8b949e')
+
     x = np.arange(len(labels))
-    plt.bar(x, day, label="Day", color=color_day)
-    plt.bar(x, night, bottom=day, label="Night", color=color_night)
-    plt.xticks(x, labels, rotation=45, ha="right", fontsize=AXIS_TEXT_SIZE)
-    plt.xlabel("Period", fontsize=AXIS_TEXT_SIZE)
-    plt.ylabel("Consumption (kWh)", fontsize=AXIS_TEXT_SIZE)
-    plt.title(title, fontsize=AXIS_TEXT_SIZE+2)
-    plt.legend(fontsize=LEGEND_TEXT_SIZE)
-    plt.tight_layout()
+    ax.bar(x, day, label="Day", color="#87CEEB")      # skyblue on dark
+    ax.bar(x, night, bottom=day, label="Night", color="#000080")  # navy
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
+    ax.set_xlabel("Period", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
+    ax.set_ylabel("Consumption (kWh)", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
+    ax.set_title(title, fontsize=AXIS_TEXT_SIZE+2, color='#e6edf3')
+    ax.legend(fontsize=LEGEND_TEXT_SIZE, facecolor='#161b22', edgecolor='#30363d')
+    ax.tick_params(colors='#e6edf3')
+    fig.tight_layout()
     st.pyplot(fig)
 
 def compute_cost(df: pd.DataFrame, price_kwh: float, mode: str, discount_pct: float,
@@ -180,9 +211,11 @@ def compute_cost(df: pd.DataFrame, price_kwh: float, mode: str, discount_pct: fl
         end_hour = int(end_hour)
     except Exception:
         return 0.0
+
     cons = df.copy()
     cons["hour"] = cons["datetime"].dt.hour
     total = cons["consumption_kwh"].sum()
+
     if mode == "All day":
         return total * price_kwh * (1 - discount_pct/100)
     else:
@@ -197,10 +230,12 @@ def compute_cost(df: pd.DataFrame, price_kwh: float, mode: str, discount_pct: fl
         return rest * price_kwh + win * price_kwh * (1 - discount_pct/100)
 
 # =============================
-# Session state
+# Session state for plan visibility
 # =============================
-if "visible_plans" not in st.session_state:
-    st.session_state.visible_plans = 3
+if "plan4_visible" not in st.session_state:
+    st.session_state.plan4_visible = False
+if "plan5_visible" not in st.session_state:
+    st.session_state.plan5_visible = False
 
 # =============================
 # Layout
@@ -223,11 +258,6 @@ with left:
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
 
-    # [+] buttons for extra plans
-    for i in range(3, MAX_PLANS):
-        if st.session_state.visible_plans <= i and st.button(f"+ Add Plan {i+1}"):
-            st.session_state.visible_plans += 1
-
 with right:
     st.header("Dashboard")
     data = load_csv(uploaded)
@@ -240,43 +270,81 @@ with right:
 
     st.markdown("---")
     st.subheader("Pricing Plans")
-    cols = st.columns(st.session_state.visible_plans)
+
+    # 5 columns total: [Add4] [Add5] [Plan1] [Plan2] [Plan3]
+    cols = st.columns(5, gap="large")
+
+    # ----- Placeholders on the LEFT to reveal Plan 4 / Plan 5 -----
+    with cols[0]:
+        if not st.session_state.plan4_visible:
+            st.markdown("### ")
+            st.markdown("#### ")
+            st.markdown("**Add Plan 4**")
+            if st.button("＋", key="add4"):
+                st.session_state.plan4_visible = True
+
+    with cols[1]:
+        if not st.session_state.plan5_visible:
+            st.markdown("### ")
+            st.markdown("#### ")
+            st.markdown("**Add Plan 5**")
+            if st.button("＋", key="add5"):
+                st.session_state.plan5_visible = True
+
     plans = []
-    for idx in range(st.session_state.visible_plans):
-        with cols[idx]:
-            st.markdown(f"**Plan {idx+1}**")
-            mode = st.selectbox(f"Mode P{idx+1}", ["All day", "By hour"], key=f"mode_{idx}")
-            price_val = st.number_input(f"Price P{idx+1} (NIS/kWh)", value=ref_price, step=0.01, format="%.4f", key=f"price_{idx}")
-            discount = st.number_input(f"Discount % P{idx+1}", value=0.0, step=0.1, format="%.1f", key=f"disc_{idx}")
+
+    # Helper to render one plan column
+    def plan_card(col, idx, default_mode="All day", default_price=None, default_discount=0.0,
+                  default_start=0, default_end=0):
+        if default_price is None:
+            default_price = ref_price
+        with col:
+            st.markdown(f"**Plan {idx}**")
+            mode = st.selectbox(f"Mode P{idx}", ["All day", "By hour"], index=0 if default_mode=="All day" else 1, key=f"mode_{idx}")
+            price_val = st.number_input(f"Price P{idx} (NIS/kWh)", value=float(default_price), step=0.01, format="%.4f", key=f"price_{idx}")
+            discount = st.number_input(f"Discount % P{idx}", value=float(default_discount), step=0.1, format="%.1f", key=f"disc_{idx}")
             if mode == "By hour":
-                start_col, end_col = st.columns(2)
-                with start_col:
-                    start_h = st.number_input(f"Start hour", min_value=0, max_value=23, value=0, step=1, key=f"start_{idx}")
-                with end_col:
-                    end_h = st.number_input(f"End hour", min_value=0, max_value=23, value=0, step=1, key=f"end_{idx}")
+                sh_col, eh_col = st.columns(2)
+                with sh_col:
+                    start_h = st.number_input("Start", min_value=0, max_value=23, value=int(default_start), step=1, key=f"start_{idx}")
+                with eh_col:
+                    end_h = st.number_input("End", min_value=0, max_value=23, value=int(default_end), step=1, key=f"end_{idx}")
             else:
                 start_h, end_h = 0, 0
-            plans.append((mode, price_val, discount, start_h, end_h))
+            return (mode, price_val, discount, start_h, end_h)
+
+    # Plans 1–3 (defaults)
+    plans.append(plan_card(cols[2], 1, default_mode="All day", default_discount=6.0))
+    plans.append(plan_card(cols[3], 2, default_mode="By hour", default_discount=20.0, default_start=23, default_end=7))
+    plans.append(plan_card(cols[4], 3, default_mode="All day", default_discount=0.0))
+
+    # If revealed, render Plan 4 / Plan 5 in the left placeholders
+    if st.session_state.plan4_visible:
+        plans.append(plan_card(cols[0], 4, default_mode="All day", default_discount=0.0))
+    if st.session_state.plan5_visible:
+        plans.append(plan_card(cols[1], 5, default_mode="All day", default_discount=0.0))
 
     st.markdown("#### Cost Comparison")
     if not data.empty:
         total_kwh = data["consumption_kwh"].sum()
         base_cost = total_kwh * ref_price
-        costs = []
-        costs.append(("Reference (no discount)", base_cost, 0.0))
-        for idx, plan in enumerate(plans):
-            c = compute_cost(data, plan[1], plan[0], plan[2], plan[3], plan[4])
-            costs.append((f"Plan {idx+1}", c, base_cost - c))
-        df_costs = pd.DataFrame(costs, columns=["Plan", "Total cost (NIS)", "Savings vs ref. (NIS)"])
+        rows = [("Reference (no discount)", base_cost, 0.0)]
+        for i, p in enumerate(plans, start=1):
+            c = compute_cost(data, p[1], p[0], p[2], p[3], p[4])
+            rows.append((f"Plan {i}", c, base_cost - c))
+
+        df_costs = pd.DataFrame(rows, columns=["Plan", "Total cost (NIS)", "Savings vs ref. (NIS)"])
         df_costs["Total cost (NIS)"] = df_costs["Total cost (NIS)"].round(1)
         df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].round(1)
 
+        # Only pick the cheapest *actual* plan (ignore reference)
         plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
-        min_cost = plan_rows["Total cost (NIS)"].min()
+        min_cost = plan_rows["Total cost (NIS)"].min() if not plan_rows.empty else np.inf
 
         def highlight_best(row):
             if row["Plan"].startswith("Plan") and row["Total cost (NIS)"] == min_cost:
-                return ['background-color: #c6efce; font-weight: bold; color: #1d1d1f'] * len(row)
+                # dark-friendly green highlight
+                return ['background-color: #163e29; color: #d1f7d6; font-weight: 600'] * len(row)
             else:
                 return [''] * len(row)
 
