@@ -367,11 +367,12 @@ if not data.empty:
     ]
 
     WIN_CELL  = f"background-color: {WIN_BG} !important; color: {WIN_FG} !important; font-weight: 700 !important;"
+    WIN_CELL = "background-color: #90EE90 !important; color: #000000 !important; font-weight: 700 !important;"
 
     def highlight_best(row):
         if row["Plan"].startswith("Plan") and float(row["Total cost (NIS)"]) == float(min_cost):
-            return [WIN_CELL]*len(row)
-        return ['']*len(row)
+            return [WIN_CELL] * len(row)
+        return [''] * len(row)
 
     styled = (
         df_costs
