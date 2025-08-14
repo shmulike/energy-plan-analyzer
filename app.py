@@ -25,6 +25,15 @@ MAX_PLANS = 5  # max number of plan columns
 st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide")
 
 # =============================
+# Intro text
+# =============================
+st.markdown("""
+### Electricity Consumption Dashboard
+Created by **Shmulik Edelman**, this tool helps you upload and analyze your household or business electricity usage.  
+Compare up to five custom pricing plans, visualize day vs. night consumption, and instantly find which plan saves you the most money.
+""")
+
+# =============================
 # Apple-like minimal style
 # =============================
 st.markdown("""
@@ -38,20 +47,14 @@ st.markdown("""
             color: #1d1d1f;
         }
         .block-container {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
+            padding-top: 1rem;
+            padding-bottom: 1rem;
         }
         .stColumn > div {
             background: #ffffff;
             border-radius: 16px;
             padding: 1rem;
             box-shadow: 0px 4px 12px rgba(0,0,0,0.05);
-        }
-        .dataframe tbody tr {
-            background: #ffffff;
-        }
-        .dataframe tbody tr:hover {
-            background: #f5f5f7;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -220,8 +223,9 @@ with left:
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
 
-    if st.session_state.visible_plans < MAX_PLANS:
-        if st.button("+ Add Plan"):
+    # [+] buttons for extra plans
+    for i in range(3, MAX_PLANS):
+        if st.session_state.visible_plans <= i and st.button(f"+ Add Plan {i+1}"):
             st.session_state.visible_plans += 1
 
 with right:
@@ -245,8 +249,11 @@ with right:
             price_val = st.number_input(f"Price P{idx+1} (NIS/kWh)", value=ref_price, step=0.01, format="%.4f", key=f"price_{idx}")
             discount = st.number_input(f"Discount % P{idx+1}", value=0.0, step=0.1, format="%.1f", key=f"disc_{idx}")
             if mode == "By hour":
-                start_h = st.number_input(f"Start hour P{idx+1}", min_value=0, max_value=23, value=0, step=1, key=f"start_{idx}")
-                end_h = st.number_input(f"End hour P{idx+1}", min_value=0, max_value=23, value=0, step=1, key=f"end_{idx}")
+                start_col, end_col = st.columns(2)
+                with start_col:
+                    start_h = st.number_input(f"Start hour", min_value=0, max_value=23, value=0, step=1, key=f"start_{idx}")
+                with end_col:
+                    end_h = st.number_input(f"End hour", min_value=0, max_value=23, value=0, step=1, key=f"end_{idx}")
             else:
                 start_h, end_h = 0, 0
             plans.append((mode, price_val, discount, start_h, end_h))
