@@ -1,4 +1,4 @@
-# streamlit_power_dashboard_dark_light_apple_theming.py
+# app.py — Energy Plan Analyzer (dark/light with fixed plot colors)
 import io, re
 import numpy as np
 import pandas as pd
@@ -14,23 +14,24 @@ LEGEND_TEXT_SIZE   = 10
 NIGHT_START, NIGHT_END = 23, 7   # plot night window
 MAX_PLANS = 5
 
-# Apple-style default plot colors (separate for dark/light)
-DARK_MODE_DAY_COLOR   = "#0A84FF"  # Apple Blue
-DARK_MODE_NIGHT_COLOR = "#5E5CE6"  # Apple Indigo
-LIGHT_MODE_DAY_COLOR  = "#FF9F0A"  # Apple Orange (daylight)
-LIGHT_MODE_NIGHT_COLOR= "#0A84FF"  # Apple Blue
+# Your requested default plot colors (used in BOTH themes)
+# Day bars = #6200EE, Night bars = #03DAC6
+DARK_MODE_DAY_COLOR    = "#6200EE"
+DARK_MODE_NIGHT_COLOR  = "#03DAC6"
+LIGHT_MODE_DAY_COLOR   = "#6200EE"
+LIGHT_MODE_NIGHT_COLOR = "#03DAC6"
 
-# Master switch: allow users to change plot colors?
-ALLOW_USER_COLOR_PICKER = False  # keep colors fixed from theme
+# Keep colors fixed (no user color picker)
+ALLOW_USER_COLOR_PICKER = False
 
 # ===================== Page setup =====================
 st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide")
 
-# Persist theme toggle
+# ===================== Theme state + visible switch =====================
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = True  # default to dark
 
-# ===================== Header w/ theme toggle =====================
+# Render theme switch on the top row (right side), with fallback for older Streamlit
 hdr_left, hdr_spacer, hdr_right = st.columns([10, 1, 2])
 with hdr_left:
     st.markdown(
@@ -45,7 +46,12 @@ with hdr_left:
         unsafe_allow_html=True,
     )
 with hdr_right:
-    st.toggle("Dark mode", key="dark_mode", value=st.session_state.dark_mode, help="Toggle between dark and light UI")
+    try:
+        dark_choice = st.toggle("Dark mode", value=st.session_state.dark_mode)
+    except Exception:
+        dark_choice = st.checkbox("Dark mode", value=st.session_state.dark_mode)
+    if dark_choice != st.session_state.dark_mode:
+        st.session_state.dark_mode = bool(dark_choice)
 
 # ===================== Theming (CSS) =====================
 if st.session_state.dark_mode:
@@ -53,7 +59,7 @@ if st.session_state.dark_mode:
     :root{
       --bg:#0f1115;--card:#161b22;--muted:#8b949e;--border:#30363d;--text:#e6edf3;
       --accent:#0A84FF;--accent-hover:#066de6;
-      --row-green:#1f5136;--row-green-text:#ffffff;
+      --row-win-bg:#1f5136;--row-win-fg:#ffffff;
     }
     """
 else:
@@ -61,7 +67,7 @@ else:
     :root{
       --bg:#f5f5f7;--card:#ffffff;--muted:#6e6e73;--border:#e5e5ea;--text:#1d1d1f;
       --accent:#0A84FF;--accent-hover:#0066d6;
-      --row-green:#d9f7e6;--row-green-text:#0a3d2a;
+      --row-win-bg:#c8f3dc;--row-win-fg:#083c2a;
     }
     """
 
@@ -122,6 +128,7 @@ def load_csv(file) -> pd.DataFrame:
         except Exception: df = None
     if df is None or df.empty: return pd.DataFrame(columns=["datetime","consumption_kwh"])
     df.columns = [str(c).strip() for c in df.columns]
+
     col_map = {"date":None,"time":None,"cons":None}
     candidates = {
         "date":["תאריך","Date"], "time":["מועד תחילת הפעימה","Time","שעה"],
@@ -130,7 +137,7 @@ def load_csv(file) -> pd.DataFrame:
     for k, names in candidates.items():
         for n in names:
             for c in df.columns:
-                if n == c or re.sub(r"\s+","",n) == re.sub(r"\s+","",c):
+                if n == c or re.sub(r"\\s+","",n) == re.sub(r"\\s+","",c):
                     col_map[k] = c; break
             if col_map[k]: break
     if col_map["date"] is None:
@@ -197,7 +204,7 @@ def plot_stacked(df_agg, title, day_color, night_color, dark: bool):
     ax.set_title(title, fontsize=AXIS_TEXT_SIZE+2, color=axis_color)
 
     leg = ax.legend(fontsize=LEGEND_TEXT_SIZE, facecolor=legend_face, edgecolor=legend_edge)
-    for txt in leg.get_texts(): txt.set_color(legend_text)  # ensure white in dark mode
+    for txt in leg.get_texts(): txt.set_color(legend_text)  # ensure contrast in both themes
 
     ax.tick_params(colors=axis_color)
     fig.tight_layout()
@@ -222,6 +229,10 @@ def compute_cost(df, price_kwh, mode, discount_pct, start_hour=0, end_hour=0):
     win = cons.loc[mask,"consumption_kwh"].sum(); rest = total - win
     return rest*price_kwh + win*price_kwh*(1 - discount_pct/100.0)
 
+# ===================== Session for extra plans =====================
+if "plan4_visible" not in st.session_state: st.session_state.plan4_visible = False
+if "plan5_visible" not in st.session_state: st.session_state.plan5_visible = False
+
 # ===================== TOP: Controls + Chart =====================
 left, right = st.columns([4,8], gap="large")
 
@@ -230,20 +241,14 @@ with left:
     st.subheader("Upload CSV"); uploaded = st.file_uploader("Electricity CSV", type=["csv"])
     st.subheader("Aggregation"); granularity = st.radio("Choose", ["Week","Month"], horizontal=True, index=1)
 
-    # Theme-picked colors (user cannot change unless ALLOW_USER_COLOR_PICKER=True)
+    # Colors from theme (no user picker)
     if st.session_state.dark_mode:
-        default_day_color, default_night_color = DARK_MODE_DAY_COLOR, DARK_MODE_NIGHT_COLOR
+        day_color, night_color = DARK_MODE_DAY_COLOR, DARK_MODE_NIGHT_COLOR
     else:
-        default_day_color, default_night_color = LIGHT_MODE_DAY_COLOR, LIGHT_MODE_NIGHT_COLOR
+        day_color, night_color = LIGHT_MODE_DAY_COLOR, LIGHT_MODE_NIGHT_COLOR
 
     if ALLOW_USER_COLOR_PICKER:
-        st.subheader("Colors")
-        default_day  = st.toggle("Use default Day color", value=True)
-        day_color    = default_day_color if default_day else st.color_picker("Day bar color", default_day_color, key="c_day")
-        default_night= st.toggle("Use default Night color", value=True)
-        night_color  = default_night_color if default_night else st.color_picker("Night bar color", default_night_color, key="c_night")
-    else:
-        day_color, night_color = default_day_color, default_night_color
+        st.warning("Color picker disabled by configuration.")
 
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
@@ -267,9 +272,6 @@ st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("Pricing Plans")
 
 # Plans 1..5 left → right (with add/remove for 4 and 5)
-if "plan4_visible" not in st.session_state: st.session_state.plan4_visible = False
-if "plan5_visible" not in st.session_state: st.session_state.plan5_visible = False
-
 cols = st.columns(5, gap="large")
 plans = []
 
@@ -277,11 +279,11 @@ def plan_card(col, idx, default_mode="All day", default_price=None, default_disc
               default_start=0, default_end=0, allow_remove=False):
     if default_price is None: default_price = ref_price
     with col:
-        top_row = st.columns([1,1]) if allow_remove else None
         if allow_remove:
-            with top_row[0]:
+            top = st.columns([1,1])
+            with top[0]:
                 st.markdown(f"**Plan {idx}**")
-            with top_row[1]:
+            with top[1]:
                 if st.button(f"Remove {idx}", key=f"rm_{idx}"):
                     st.session_state[f"plan{idx}_visible"] = False
                     st.experimental_rerun()
@@ -306,12 +308,12 @@ def plan_card(col, idx, default_mode="All day", default_price=None, default_disc
             start_h, end_h = 0, 0
         return (mode, price_val, discount, start_h, end_h)
 
-# 1..3 always visible
+# Plans 1..3 (always visible) in cols[0..2]
 plans.append(plan_card(cols[0], 1, default_mode="All day", default_discount=6.0))
 plans.append(plan_card(cols[1], 2, default_mode="By hour", default_discount=20.0, default_start=23, default_end=7))
 plans.append(plan_card(cols[2], 3, default_mode="All day", default_discount=0.0))
 
-# col[3] Plan 4 (add/remove)
+# col[3]: Plan 4 add/remove
 with cols[3]:
     if not st.session_state.plan4_visible:
         if st.button("＋ Add Plan 4", key="add4"):
@@ -320,7 +322,7 @@ with cols[3]:
     else:
         plans.append(plan_card(cols[3], 4, default_mode="All day", allow_remove=True))
 
-# col[4] Plan 5 (add/remove)
+# col[4]: Plan 5 add/remove
 with cols[4]:
     if not st.session_state.plan5_visible:
         if st.button("＋ Add Plan 5", key="add5"):
@@ -341,15 +343,14 @@ if not data.empty:
         rows.append((f"Plan {i}", c, base_cost - c))
 
     df_costs = pd.DataFrame(rows, columns=["Plan","Total cost (NIS)","Savings vs ref. (NIS)"])
-    # show exactly one decimal
+    # exactly one decimal
     df_costs["Total cost (NIS)"]      = df_costs["Total cost (NIS)"].astype(float)
     df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
 
-    # choose cheapest among Plans only (ignore Reference)
+    # cheapest among actual plans (ignore Reference)
     plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
     min_cost = plan_rows["Total cost (NIS)"].min() if not plan_rows.empty else np.inf
 
-    # Base table styles to keep background consistent with theme
     base_styles = [
         {"selector":"th","props":[("background-color","var(--card)"),("color","var(--text)"),("border","1px solid var(--border)")]},
         {"selector":"td","props":[("background-color","var(--card)"),("color","var(--text)"),("border","1px solid var(--border)")]},
@@ -358,8 +359,8 @@ if not data.empty:
 
     def highlight_best(row):
         if row["Plan"].startswith("Plan") and float(row["Total cost (NIS)"]) == float(min_cost):
-            # Strong contrast: dark green background, WHITE text
-            return [f'background-color: var(--row-green); color: var(--row-green-text); font-weight: 700'] * len(row)
+            # high-contrast winning row
+            return [f'background-color: var(--row-win-bg); color: var(--row-win-fg); font-weight: 700'] * len(row)
         return [''] * len(row)
 
     styled = (
