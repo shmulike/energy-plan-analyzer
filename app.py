@@ -1,11 +1,11 @@
-# streamlit_power_dashboard_dark_apple_colors_locked.py
+# streamlit_power_dashboard_dark_light_apple_theming.py
 import io, re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 
-# ============ Config ============
+# ===================== Config =====================
 DEFAULT_ELECTRIC_PRICE = 0.6402  # NIS/kWh
 PLOT_WIDTH_INCHES  = 12
 PLOT_HEIGHT_INCHES = 6
@@ -14,56 +14,91 @@ LEGEND_TEXT_SIZE   = 10
 NIGHT_START, NIGHT_END = 23, 7   # plot night window
 MAX_PLANS = 5
 
-# Apple-style default plot colors (dark mode friendly)
-DEFAULT_DAY_COLOR   = "#0A84FF"  # Apple Blue
-DEFAULT_NIGHT_COLOR = "#5E5CE6"  # Apple Indigo
+# Apple-style default plot colors (separate for dark/light)
+DARK_MODE_DAY_COLOR   = "#0A84FF"  # Apple Blue
+DARK_MODE_NIGHT_COLOR = "#5E5CE6"  # Apple Indigo
+LIGHT_MODE_DAY_COLOR  = "#FF9F0A"  # Apple Orange (daylight)
+LIGHT_MODE_NIGHT_COLOR= "#0A84FF"  # Apple Blue
 
 # Master switch: allow users to change plot colors?
-ALLOW_USER_COLOR_PICKER = False  # <- default: False (no color controls shown)
+ALLOW_USER_COLOR_PICKER = False  # keep colors fixed from theme
 
+# ===================== Page setup =====================
 st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide")
 
-# ---------- Intro ----------
-st.markdown(
-    """
-<div style="margin:0 0 0.3rem 0;">
-  <h3 style="margin:0;color:#e6edf3;">Electricity Consumption Dashboard</h3>
-  <p style="margin:.2rem 0 0 0;color:#8b949e;">
-    Created by <strong>Shmulik Edelman</strong>. Upload your CSV, visualize day vs. night consumption, and compare up to five pricing plans.
+# Persist theme toggle
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = True  # default to dark
+
+# ===================== Header w/ theme toggle =====================
+hdr_left, hdr_spacer, hdr_right = st.columns([10, 1, 2])
+with hdr_left:
+    st.markdown(
+        """
+<div style="margin:0 0 .3rem 0;">
+  <h3 style="margin:0;">Electricity Consumption Dashboard</h3>
+  <p style="margin:.2rem 0 0 0;opacity:.8;">
+    Created by <strong>Shmulik Edelman</strong>. Upload your CSV, visualize day vs. night usage, and compare up to five pricing plans.
   </p>
 </div>
 """,
-    unsafe_allow_html=True,
-)
+        unsafe_allow_html=True,
+    )
+with hdr_right:
+    st.toggle("Dark mode", key="dark_mode", value=st.session_state.dark_mode, help="Toggle between dark and light UI")
 
-# ---------- Dark theme ----------
-st.markdown(
+# ===================== Theming (CSS) =====================
+if st.session_state.dark_mode:
+    css = """
+    :root{
+      --bg:#0f1115;--card:#161b22;--muted:#8b949e;--border:#30363d;--text:#e6edf3;
+      --accent:#0A84FF;--accent-hover:#066de6;
+      --row-green:#1f5136;--row-green-text:#ffffff;
+    }
     """
+else:
+    css = """
+    :root{
+      --bg:#f5f5f7;--card:#ffffff;--muted:#6e6e73;--border:#e5e5ea;--text:#1d1d1f;
+      --accent:#0A84FF;--accent-hover:#0066d6;
+      --row-green:#d9f7e6;--row-green-text:#0a3d2a;
+    }
+    """
+
+st.markdown(
+    f"""
 <style>
-:root{
-  --bg:#0f1115;--card:#161b22;--muted:#8b949e;--border:#30363d;--text:#e6edf3;
-  --accent:#1f6feb;--accent-hover:#1a60d1;--row-green:#163e29;--row-green-text:#d1f7d6;
-}
-.stApp{background-color:var(--bg);color:var(--text);}
-.block-container{padding-top:.6rem;padding-bottom:.6rem;}
-.card{background:var(--card);border-radius:16px;padding:1rem;border:1px solid var(--border);
-      box-shadow:0 8px 24px rgba(0,0,0,.25);}
-h1,h2,h3,h4,h5{color:var(--text);margin:0 0 .6rem 0;}
+{css}
+.stApp{{background-color:var(--bg);color:var(--text);}}
+.block-container{{padding-top:.6rem;padding-bottom:.6rem;}}
+.card{{background:var(--card);border-radius:16px;padding:1rem;border:1px solid var(--border);
+      box-shadow:0 8px 24px rgba(0,0,0,.12);}}
+
+/* headings */
+h1,h2,h3,h4,h5{{color:var(--text);margin:0 0 .6rem 0;}}
+
+/* inputs */
 input,textarea,select,.stTextInput input,.stNumberInput input,
-.stSelectbox div[role="button"],.stTextArea textarea{
-  background:#0d1117!important;color:var(--text)!important;border:1px solid var(--border)!important;
+.stSelectbox div[role="button"],.stTextArea textarea{{
+  background:transparent!important;color:var(--text)!important;border:1px solid var(--border)!important;
   border-radius:12px!important;
-}
-.stNumberInput button,.stSelectbox svg{color:var(--text)!important;}
-.stButton>button{background:var(--accent);color:#fff;border-radius:12px;border:none;
-  padding:.45rem .9rem;font-weight:600;box-shadow:0 6px 16px rgba(31,111,235,.35);}
-.stButton>button:hover{background:var(--accent-hover);}
+}}
+.stNumberInput button,.stSelectbox svg{{color:var(--text)!important;}}
+
+/* buttons */
+.stButton>button{{background:var(--accent);color:#fff;border-radius:12px;border:none;
+  padding:.45rem .9rem;font-weight:600;box-shadow:0 6px 16px rgba(10,132,255,.25);}}
+.stButton>button:hover{{background:var(--accent-hover);}}
+
+/* dataframe base to avoid odd backgrounds */
+.dataframe th{{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--border)!important;}}
+.dataframe td{{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--border)!important;}}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# ============ Helpers ============
+# ===================== Helpers =====================
 def find_header_line(raw_bytes: bytes) -> int:
     try:
         text = raw_bytes.decode("utf-8", errors="replace")
@@ -87,7 +122,6 @@ def load_csv(file) -> pd.DataFrame:
         except Exception: df = None
     if df is None or df.empty: return pd.DataFrame(columns=["datetime","consumption_kwh"])
     df.columns = [str(c).strip() for c in df.columns]
-
     col_map = {"date":None,"time":None,"cons":None}
     candidates = {
         "date":["תאריך","Date"], "time":["מועד תחילת הפעימה","Time","שעה"],
@@ -99,7 +133,6 @@ def load_csv(file) -> pd.DataFrame:
                 if n == c or re.sub(r"\s+","",n) == re.sub(r"\s+","",c):
                     col_map[k] = c; break
             if col_map[k]: break
-
     if col_map["date"] is None:
         for c in df.columns:
             sample = str(df[c].dropna().astype(str).head(5).tolist())
@@ -112,7 +145,6 @@ def load_csv(file) -> pd.DataFrame:
         for c in df.columns:
             try: pd.to_numeric(df[c], errors="raise"); col_map["cons"]=c; break
             except Exception: continue
-
     if None in col_map.values(): return pd.DataFrame(columns=["datetime","consumption_kwh"])
     cons = pd.to_numeric(df[col_map["cons"]], errors="coerce")
     dt = pd.to_datetime(df[col_map["date"]].astype(str)+" "+df[col_map["time"]].astype(str),
@@ -136,24 +168,39 @@ def aggregate(df, granularity:str):
     grp.columns = ["day_kwh","night_kwh"]
     return grp.reset_index().rename(columns={"period":"label"})
 
-def plot_stacked(df_agg, title, color_day, color_night):
+def plot_stacked(df_agg, title, day_color, night_color, dark: bool):
     if df_agg.empty:
         st.warning("No data to plot."); return
     labels = df_agg["label"].tolist()
     day = df_agg["day_kwh"].values; night = df_agg["night_kwh"].values
+
     fig = plt.figure(figsize=(PLOT_WIDTH_INCHES, PLOT_HEIGHT_INCHES))
     ax = fig.add_subplot(111)
-    fig.patch.set_facecolor('#0f1115'); ax.set_facecolor('#0f1115')
-    for s in ax.spines.values(): s.set_color('#8b949e')
+    if dark:
+        fig.patch.set_facecolor('#0f1115'); ax.set_facecolor('#0f1115')
+        axis_color = '#e6edf3'; spine_color = '#8b949e'
+        legend_face = '#161b22'; legend_edge = '#30363d'; legend_text = 'white'
+    else:
+        fig.patch.set_facecolor('#f5f5f7'); ax.set_facecolor('#ffffff')
+        axis_color = '#1d1d1f'; spine_color = '#d2d2d7'
+        legend_face = '#ffffff'; legend_edge = '#e5e5ea'; legend_text = '#1d1d1f'
+
+    for s in ax.spines.values(): s.set_color(spine_color)
     x = np.arange(len(labels))
-    ax.bar(x, day,   label="Day",   color=color_day)
-    ax.bar(x, night, bottom=day, label="Night", color=color_night)
-    ax.set_xticks(x); ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
-    ax.set_xlabel("Period", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
-    ax.set_ylabel("Consumption (kWh)", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
-    ax.set_title(title, fontsize=AXIS_TEXT_SIZE+2, color='#e6edf3')
-    ax.legend(fontsize=LEGEND_TEXT_SIZE, facecolor='#161b22', edgecolor='#30363d')
-    ax.tick_params(colors='#e6edf3'); fig.tight_layout()
+    ax.bar(x, day,   label="Day",   color=day_color)
+    ax.bar(x, night, bottom=day, label="Night", color=night_color)
+
+    ax.set_xticks(x); ax.set_xticklabels(labels, rotation=45, ha="right",
+                                         fontsize=AXIS_TEXT_SIZE, color=axis_color)
+    ax.set_xlabel("Period", fontsize=AXIS_TEXT_SIZE, color=axis_color)
+    ax.set_ylabel("Consumption (kWh)", fontsize=AXIS_TEXT_SIZE, color=axis_color)
+    ax.set_title(title, fontsize=AXIS_TEXT_SIZE+2, color=axis_color)
+
+    leg = ax.legend(fontsize=LEGEND_TEXT_SIZE, facecolor=legend_face, edgecolor=legend_edge)
+    for txt in leg.get_texts(): txt.set_color(legend_text)  # ensure white in dark mode
+
+    ax.tick_params(colors=axis_color)
+    fig.tight_layout()
     st.pyplot(fig)
 
 def compute_cost(df, price_kwh, mode, discount_pct, start_hour=0, end_hour=0):
@@ -175,11 +222,7 @@ def compute_cost(df, price_kwh, mode, discount_pct, start_hour=0, end_hour=0):
     win = cons.loc[mask,"consumption_kwh"].sum(); rest = total - win
     return rest*price_kwh + win*price_kwh*(1 - discount_pct/100.0)
 
-# ============ Session (visibility of extra plans) ============
-if "plan4_visible" not in st.session_state: st.session_state.plan4_visible = False
-if "plan5_visible" not in st.session_state: st.session_state.plan5_visible = False
-
-# ============ TOP: Controls + Chart ============
+# ===================== TOP: Controls + Chart =====================
 left, right = st.columns([4,8], gap="large")
 
 with left:
@@ -187,15 +230,20 @@ with left:
     st.subheader("Upload CSV"); uploaded = st.file_uploader("Electricity CSV", type=["csv"])
     st.subheader("Aggregation"); granularity = st.radio("Choose", ["Week","Month"], horizontal=True, index=1)
 
-    # Colors section: only if allowed; otherwise enforce defaults silently
+    # Theme-picked colors (user cannot change unless ALLOW_USER_COLOR_PICKER=True)
+    if st.session_state.dark_mode:
+        default_day_color, default_night_color = DARK_MODE_DAY_COLOR, DARK_MODE_NIGHT_COLOR
+    else:
+        default_day_color, default_night_color = LIGHT_MODE_DAY_COLOR, LIGHT_MODE_NIGHT_COLOR
+
     if ALLOW_USER_COLOR_PICKER:
         st.subheader("Colors")
-        default_day  = st.toggle("Use default Day color (Apple Blue)", value=True)
-        day_color    = DEFAULT_DAY_COLOR if default_day else st.color_picker("Day bar color", DEFAULT_DAY_COLOR, key="c_day")
-        default_night= st.toggle("Use default Night color (Apple Indigo)",  value=True)
-        night_color  = DEFAULT_NIGHT_COLOR if default_night else st.color_picker("Night bar color", DEFAULT_NIGHT_COLOR, key="c_night")
+        default_day  = st.toggle("Use default Day color", value=True)
+        day_color    = default_day_color if default_day else st.color_picker("Day bar color", default_day_color, key="c_day")
+        default_night= st.toggle("Use default Night color", value=True)
+        night_color  = default_night_color if default_night else st.color_picker("Night bar color", default_night_color, key="c_night")
     else:
-        day_color, night_color = DEFAULT_DAY_COLOR, DEFAULT_NIGHT_COLOR
+        day_color, night_color = default_day_color, default_night_color
 
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
@@ -210,22 +258,36 @@ with right:
     else:
         st.info("Upload a CSV to see plot and pricing.")
     agg_df = aggregate(data, granularity)
-    plot_stacked(agg_df, f"Consumption ({granularity}) - Day vs Night", day_color, night_color)
+    plot_stacked(agg_df, f"Consumption ({granularity}) - Day vs Night",
+                 day_color, night_color, dark=st.session_state.dark_mode)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ============ BOTTOM: Full‑width Plans + Cost Comparison ============
+# ===================== BOTTOM: Full‑width Plans + Cost Comparison =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("Pricing Plans")
 
-# Columns in order 1..5 from left to right:
+# Plans 1..5 left → right (with add/remove for 4 and 5)
+if "plan4_visible" not in st.session_state: st.session_state.plan4_visible = False
+if "plan5_visible" not in st.session_state: st.session_state.plan5_visible = False
+
 cols = st.columns(5, gap="large")
 plans = []
 
 def plan_card(col, idx, default_mode="All day", default_price=None, default_discount=0.0,
-              default_start=0, default_end=0):
+              default_start=0, default_end=0, allow_remove=False):
     if default_price is None: default_price = ref_price
     with col:
-        st.markdown(f"**Plan {idx}**")
+        top_row = st.columns([1,1]) if allow_remove else None
+        if allow_remove:
+            with top_row[0]:
+                st.markdown(f"**Plan {idx}**")
+            with top_row[1]:
+                if st.button(f"Remove {idx}", key=f"rm_{idx}"):
+                    st.session_state[f"plan{idx}_visible"] = False
+                    st.experimental_rerun()
+        else:
+            st.markdown(f"**Plan {idx}**")
+
         mode = st.selectbox(f"Mode P{idx}", ["All day","By hour"],
                             index=0 if default_mode=="All day" else 1, key=f"mode_{idx}")
         price_val = st.number_input(f"Price P{idx} (NIS/kWh)", value=float(default_price),
@@ -244,26 +306,28 @@ def plan_card(col, idx, default_mode="All day", default_price=None, default_disc
             start_h, end_h = 0, 0
         return (mode, price_val, discount, start_h, end_h)
 
-# Plans 1..3 (always visible) in cols[0..2]
+# 1..3 always visible
 plans.append(plan_card(cols[0], 1, default_mode="All day", default_discount=6.0))
 plans.append(plan_card(cols[1], 2, default_mode="By hour", default_discount=20.0, default_start=23, default_end=7))
 plans.append(plan_card(cols[2], 3, default_mode="All day", default_discount=0.0))
 
-# cols[3] -> Plan 4 placeholder or Plan 4
+# col[3] Plan 4 (add/remove)
 with cols[3]:
     if not st.session_state.plan4_visible:
-        if st.button("＋ Add Plan 4"):
+        if st.button("＋ Add Plan 4", key="add4"):
             st.session_state.plan4_visible = True
+            st.experimental_rerun()
     else:
-        plans.append(plan_card(cols[3], 4, default_mode="All day"))
+        plans.append(plan_card(cols[3], 4, default_mode="All day", allow_remove=True))
 
-# cols[4] -> Plan 5 placeholder or Plan 5
+# col[4] Plan 5 (add/remove)
 with cols[4]:
     if not st.session_state.plan5_visible:
-        if st.button("＋ Add Plan 5"):
+        if st.button("＋ Add Plan 5", key="add5"):
             st.session_state.plan5_visible = True
+            st.experimental_rerun()
     else:
-        plans.append(plan_card(cols[4], 5, default_mode="All day"))
+        plans.append(plan_card(cols[4], 5, default_mode="All day", allow_remove=True))
 
 st.markdown("---")
 st.subheader("Cost Comparison")
@@ -275,25 +339,28 @@ if not data.empty:
     for i, p in enumerate(plans, start=1):
         c = compute_cost(data, p[1], p[0], p[2], p[3], p[4])
         rows.append((f"Plan {i}", c, base_cost - c))
+
     df_costs = pd.DataFrame(rows, columns=["Plan","Total cost (NIS)","Savings vs ref. (NIS)"])
-    # one decimal everywhere
+    # show exactly one decimal
     df_costs["Total cost (NIS)"]      = df_costs["Total cost (NIS)"].astype(float)
     df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
 
-    # winner (only among "Plan *" rows)
+    # choose cheapest among Plans only (ignore Reference)
     plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
     min_cost = plan_rows["Total cost (NIS)"].min() if not plan_rows.empty else np.inf
 
+    # Base table styles to keep background consistent with theme
     base_styles = [
-        {"selector":"th","props":[("background-color","#0d1117"),("color","#e6edf3"),("border","1px solid #30363d")]},
-        {"selector":"td","props":[("background-color","#0d1117"),("color","#e6edf3"),("border","1px solid #30363d")]},
-        {"selector":"tr","props":[("background-color","#0d1117")]}
+        {"selector":"th","props":[("background-color","var(--card)"),("color","var(--text)"),("border","1px solid var(--border)")]},
+        {"selector":"td","props":[("background-color","var(--card)"),("color","var(--text)"),("border","1px solid var(--border)")]},
+        {"selector":"tr","props":[("background-color","var(--card)")]},
     ]
 
     def highlight_best(row):
         if row["Plan"].startswith("Plan") and float(row["Total cost (NIS)"]) == float(min_cost):
-            return ['background-color: var(--row-green); color: var(--row-green-text); font-weight: 600']*len(row)
-        return ['']*len(row)
+            # Strong contrast: dark green background, WHITE text
+            return [f'background-color: var(--row-green); color: var(--row-green-text); font-weight: 700'] * len(row)
+        return [''] * len(row)
 
     styled = (
         df_costs
