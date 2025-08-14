@@ -1,4 +1,4 @@
-# app.py — Energy Plan Analyzer (Light/Dark switch, fixed table highlight, fixed plot legend)
+# app.py — Energy Plan Analyzer (Light/Dark switch, robust winner highlight, fixed plot colors)
 import io, re
 import numpy as np
 import pandas as pd
@@ -15,10 +15,8 @@ NIGHT_START, NIGHT_END = 23, 7
 MAX_PLANS = 5
 
 # Default plot colors (used in BOTH themes unless you change them)
-DARK_MODE_DAY_COLOR    = "#6200EE"
-DARK_MODE_NIGHT_COLOR  = "#03DAC6"
-LIGHT_MODE_DAY_COLOR   = "#6200EE"
-LIGHT_MODE_NIGHT_COLOR = "#03DAC6"
+DAY_COLOR_DEFAULT   = "#6200EE"  # Day (purple)
+NIGHT_COLOR_DEFAULT = "#03DAC6"  # Night (teal)
 
 ALLOW_USER_COLOR_PICKER = False  # keep color pickers hidden
 
@@ -53,32 +51,14 @@ with top_r:
 # ===================== Theming (CSS) =====================
 if st.session_state.dark_mode:
     # Palette for Dark
-    BG        = "#0f1115"
-    CARD      = "#161b22"
-    MUTED     = "#8b949e"
-    BORDER    = "#30363d"
-    TEXT      = "#e6edf3"
-    ACCENT    = "#0A84FF"
-    ACCENT_H  = "#066de6"
-    DF_TH_BG  = CARD
-    DF_TD_BG  = CARD
-    DF_TEXT   = TEXT
-    WIN_BG    = "#1f5136"  # <- winner row background (dark green)
-    WIN_FG    = "#ffffff"  # <- winner row text
+    BG, CARD, MUTED, BORDER, TEXT = "#0f1115", "#161b22", "#8b949e", "#30363d", "#e6edf3"
+    ACCENT, ACCENT_H = "#0A84FF", "#066de6"
+    DF_TH_BG, DF_TD_BG, DF_TEXT = CARD, CARD, TEXT
 else:
     # Palette for Light
-    BG        = "#f5f5f7"
-    CARD      = "#ffffff"
-    MUTED     = "#6e6e73"
-    BORDER    = "#e5e5ea"
-    TEXT      = "#1d1d1f"
-    ACCENT    = "#0A84FF"
-    ACCENT_H  = "#0066d6"
-    DF_TH_BG  = CARD
-    DF_TD_BG  = CARD
-    DF_TEXT   = TEXT
-    WIN_BG    = "#c8f3dc"  # <- winner row background (mint)
-    WIN_FG    = "#083c2a"  # <- winner row text (deep green)
+    BG, CARD, MUTED, BORDER, TEXT = "#f5f5f7", "#ffffff", "#6e6e73", "#e5e5ea", "#1d1d1f"
+    ACCENT, ACCENT_H = "#0A84FF", "#0066d6"
+    DF_TH_BG, DF_TD_BG, DF_TEXT = CARD, CARD, TEXT
 
 st.markdown(
     f"""
@@ -190,13 +170,13 @@ def plot_stacked(df_agg, title, day_color, night_color, dark: bool):
     fig = plt.figure(figsize=(PLOT_WIDTH_INCHES, PLOT_HEIGHT_INCHES))
     ax = fig.add_subplot(111)
     if dark:
-        fig.patch.set_facecolor(BG); ax.set_facecolor(BG)
-        axis_color = TEXT; spine_color = MUTED
-        legend_face = CARD; legend_edge = BORDER; legend_text = "#FFFFFF"
+        fig.patch.set_facecolor("#0f1115"); ax.set_facecolor("#0f1115")
+        axis_color = "#e6edf3"; spine_color = "#8b949e"
+        legend_face = "#161b22"; legend_edge = "#30363d"; legend_text = "#FFFFFF"
     else:
-        fig.patch.set_facecolor(BG); ax.set_facecolor("#FFFFFF")
-        axis_color = TEXT; spine_color = "#d2d2d7"
-        legend_face = "#FFFFFF"; legend_edge = BORDER; legend_text = "#1d1d1f"
+        fig.patch.set_facecolor("#f5f5f7"); ax.set_facecolor("#FFFFFF")
+        axis_color = "#1d1d1f"; spine_color = "#d2d2d7"
+        legend_face = "#FFFFFF"; legend_edge = "#e5e5ea"; legend_text = "#1d1d1f"
 
     for s in ax.spines.values(): s.set_color(spine_color)
     x = np.arange(len(labels))
@@ -243,28 +223,28 @@ if "plan5_visible" not in st.session_state: st.session_state.plan5_visible = Fal
 left, right = st.columns([4,8], gap="large")
 
 with left:
-    st.markdown(f'<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Upload CSV")
     uploaded = st.file_uploader("Electricity CSV", type=["csv"])
 
     st.subheader("Aggregation")
     granularity = st.radio("Choose", ["Week","Month"], horizontal=True, index=1)
 
-    # Theme-derived plot colors (no user picker)
-    if st.session_state.dark_mode:
-        day_color, night_color = DARK_MODE_DAY_COLOR, DARK_MODE_NIGHT_COLOR
-    else:
-        day_color, night_color = LIGHT_MODE_DAY_COLOR, LIGHT_MODE_NIGHT_COLOR
-
+    # Theme-derived plot colors (no user picker unless enabled)
+    day_color, night_color = DAY_COLOR_DEFAULT, NIGHT_COLOR_DEFAULT
     if ALLOW_USER_COLOR_PICKER:
-        st.info("Color picker disabled by configuration.")
+        st.subheader("Colors")
+        use_def_day = st.toggle("Use default Day color", value=True)
+        day_color = DAY_COLOR_DEFAULT if use_def_day else st.color_picker("Day bar color", DAY_COLOR_DEFAULT, key="c_day")
+        use_def_night = st.toggle("Use default Night color", value=True)
+        night_color = NIGHT_COLOR_DEFAULT if use_def_night else st.color_picker("Night bar color", NIGHT_COLOR_DEFAULT, key="c_night")
 
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
-    st.markdown(f'<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Dashboard")
     data = load_csv(uploaded)
     if not data.empty:
@@ -277,7 +257,7 @@ with right:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ===================== BOTTOM: Full‑width Plans + Cost Comparison =====================
-st.markdown(f'<div class="card">', unsafe_allow_html=True)
+st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("Pricing Plans")
 
 cols = st.columns(5, gap="large")
@@ -300,89 +280,4 @@ def plan_card(col, idx, default_mode="All day", default_price=None, default_disc
 
         mode = st.selectbox(f"Mode P{idx}", ["All day","By hour"],
                             index=0 if default_mode=="All day" else 1, key=f"mode_{idx}")
-        price_val = st.number_input(f"Price P{idx} (NIS/kWh)", value=float(default_price),
-                                    step=0.01, format="%.4f", key=f"price_{idx}")
-        discount = st.number_input(f"Discount % P{idx}", value=float(default_discount),
-                                   step=0.1, format="%.1f", key=f"disc_{idx}")
-        if mode == "By hour":
-            c1, c2 = st.columns(2)
-            with c1:
-                start_h = st.number_input("Start", min_value=0, max_value=23,
-                                          value=int(default_start), step=1, key=f"start_{idx}")
-            with c2:
-                end_h   = st.number_input("End",   min_value=0, max_value=23,
-                                          value=int(default_end), step=1, key=f"end_{idx}")
-        else:
-            start_h, end_h = 0, 0
-        return (mode, price_val, discount, start_h, end_h)
-
-# Plans 1..3 (always visible) left -> right
-plans.append(plan_card(cols[0], 1, default_mode="All day", default_discount=6.0))
-plans.append(plan_card(cols[1], 2, default_mode="By hour", default_discount=20.0, default_start=23, default_end=7))
-plans.append(plan_card(cols[2], 3, default_mode="All day", default_discount=0.0))
-
-# Plan 4
-with cols[3]:
-    if not st.session_state.plan4_visible:
-        if st.button("＋ Add Plan 4", key="add4"):
-            st.session_state.plan4_visible = True
-            st.experimental_rerun()
-    else:
-        plans.append(plan_card(cols[3], 4, default_mode="All day", allow_remove=True))
-
-# Plan 5
-with cols[4]:
-    if not st.session_state.plan5_visible:
-        if st.button("＋ Add Plan 5", key="add5"):
-            st.session_state.plan5_visible = True
-            st.experimental_rerun()
-    else:
-        plans.append(plan_card(cols[4], 5, default_mode="All day", allow_remove=True))
-
-st.markdown("---")
-st.subheader("Cost Comparison")
-
-if not data.empty:
-    total_kwh = data["consumption_kwh"].sum()
-    base_cost = total_kwh * ref_price
-    rows = [("Reference (no discount)", base_cost, 0.0)]
-    for i, p in enumerate(plans, start=1):
-        c = compute_cost(data, p[1], p[0], p[2], p[3], p[4])
-        rows.append((f"Plan {i}", c, base_cost - c))
-
-    df_costs = pd.DataFrame(rows, columns=["Plan","Total cost (NIS)","Savings vs ref. (NIS)"])
-    # one decimal everywhere
-    df_costs["Total cost (NIS)"]      = df_costs["Total cost (NIS)"].astype(float)
-    df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
-
-    # cheapest among actual plans (ignore Reference)
-    plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
-    min_cost = plan_rows["Total cost (NIS)"].min() if not plan_rows.empty else np.inf
-
-    # Base table styles with fixed HEX colors (no CSS variables inside the Styler)
-    base_styles = [
-        {"selector":"th","props":[("background-color", DF_TH_BG),("color", DF_TEXT),("border", f"1px solid {BORDER}")]},
-        {"selector":"td","props":[("background-color", DF_TD_BG),("color", DF_TEXT),("border", f"1px solid {BORDER}")]},
-        {"selector":"tr","props":[("background-color", DF_TD_BG)]},
-    ]
-
-    # WIN_CELL  = f"background-color: {WIN_BG} !important; color: {WIN_FG} !important; font-weight: 700 !important;"
-    WIN_CELL = "background-color: #90EE90 !important; color: #000000 !important; font-weight: 700 !important;"
-
-    def highlight_best(row):
-        if row["Plan"].startswith("Plan") and float(row["Total cost (NIS)"]) == float(min_cost):
-            return [WIN_CELL] * len(row)
-        return [''] * len(row)
-
-    styled = (
-        df_costs
-        .style
-        .set_table_styles(base_styles)
-        .format({"Total cost (NIS)":"{:.1f}", "Savings vs ref. (NIS)":"{:.1f}"})
-        .apply(highlight_best, axis=1)
-    )
-    st.dataframe(styled, use_container_width=True)
-else:
-    st.info("No data to compute costs.")
-
-st.markdown('</div>', unsafe_allow_html=True)
+        price_val = st.number_input(f"Price
