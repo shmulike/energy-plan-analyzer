@@ -1,4 +1,4 @@
-# streamlit_power_dashboard_dark_no_gaps_sorted_plans.py
+# streamlit_power_dashboard_dark_apple_colors_locked.py
 import io, re
 import numpy as np
 import pandas as pd
@@ -14,9 +14,16 @@ LEGEND_TEXT_SIZE   = 10
 NIGHT_START, NIGHT_END = 23, 7   # plot night window
 MAX_PLANS = 5
 
+# Apple-style default plot colors (dark mode friendly)
+DEFAULT_DAY_COLOR   = "#0A84FF"  # Apple Blue
+DEFAULT_NIGHT_COLOR = "#5E5CE6"  # Apple Indigo
+
+# Master switch: allow users to change plot colors?
+ALLOW_USER_COLOR_PICKER = False  # <- default: False (no color controls shown)
+
 st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide")
 
-# ---------- Intro (tight margins) ----------
+# ---------- Intro ----------
 st.markdown(
     """
 <div style="margin:0 0 0.3rem 0;">
@@ -29,7 +36,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- Dark theme (reduced paddings; fix table base colors) ----------
+# ---------- Dark theme ----------
 st.markdown(
     """
 <style>
@@ -39,18 +46,15 @@ st.markdown(
 }
 .stApp{background-color:var(--bg);color:var(--text);}
 .block-container{padding-top:.6rem;padding-bottom:.6rem;}
-/* cards */
 .card{background:var(--card);border-radius:16px;padding:1rem;border:1px solid var(--border);
       box-shadow:0 8px 24px rgba(0,0,0,.25);}
 h1,h2,h3,h4,h5{color:var(--text);margin:0 0 .6rem 0;}
-/* inputs */
 input,textarea,select,.stTextInput input,.stNumberInput input,
 .stSelectbox div[role="button"],.stTextArea textarea{
   background:#0d1117!important;color:var(--text)!important;border:1px solid var(--border)!important;
   border-radius:12px!important;
 }
 .stNumberInput button,.stSelectbox svg{color:var(--text)!important;}
-/* buttons */
 .stButton>button{background:var(--accent);color:#fff;border-radius:12px;border:none;
   padding:.45rem .9rem;font-weight:600;box-shadow:0 6px 16px rgba(31,111,235,.35);}
 .stButton>button:hover{background:var(--accent-hover);}
@@ -83,6 +87,7 @@ def load_csv(file) -> pd.DataFrame:
         except Exception: df = None
     if df is None or df.empty: return pd.DataFrame(columns=["datetime","consumption_kwh"])
     df.columns = [str(c).strip() for c in df.columns]
+
     col_map = {"date":None,"time":None,"cons":None}
     candidates = {
         "date":["תאריך","Date"], "time":["מועד תחילת הפעימה","Time","שעה"],
@@ -94,6 +99,7 @@ def load_csv(file) -> pd.DataFrame:
                 if n == c or re.sub(r"\s+","",n) == re.sub(r"\s+","",c):
                     col_map[k] = c; break
             if col_map[k]: break
+
     if col_map["date"] is None:
         for c in df.columns:
             sample = str(df[c].dropna().astype(str).head(5).tolist())
@@ -106,6 +112,7 @@ def load_csv(file) -> pd.DataFrame:
         for c in df.columns:
             try: pd.to_numeric(df[c], errors="raise"); col_map["cons"]=c; break
             except Exception: continue
+
     if None in col_map.values(): return pd.DataFrame(columns=["datetime","consumption_kwh"])
     cons = pd.to_numeric(df[col_map["cons"]], errors="coerce")
     dt = pd.to_datetime(df[col_map["date"]].astype(str)+" "+df[col_map["time"]].astype(str),
@@ -139,8 +146,8 @@ def plot_stacked(df_agg, title, color_day, color_night):
     fig.patch.set_facecolor('#0f1115'); ax.set_facecolor('#0f1115')
     for s in ax.spines.values(): s.set_color('#8b949e')
     x = np.arange(len(labels))
-    ax.bar(x, day,   label="Day",   color=color_day  or "#87CEEB")
-    ax.bar(x, night, bottom=day, label="Night", color=color_night or "#000080")
+    ax.bar(x, day,   label="Day",   color=color_day)
+    ax.bar(x, night, bottom=day, label="Night", color=color_night)
     ax.set_xticks(x); ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
     ax.set_xlabel("Period", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
     ax.set_ylabel("Consumption (kWh)", fontsize=AXIS_TEXT_SIZE, color='#e6edf3')
@@ -179,11 +186,17 @@ with left:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Upload CSV"); uploaded = st.file_uploader("Electricity CSV", type=["csv"])
     st.subheader("Aggregation"); granularity = st.radio("Choose", ["Week","Month"], horizontal=True, index=1)
-    st.subheader("Colors")
-    default_day  = st.toggle("Default Day color (skyblue)", value=True)
-    day_color    = "#87CEEB" if default_day else st.color_picker("Day bar color", "#87CEEB", key="c_day")
-    default_night= st.toggle("Default Night color (navy)",  value=True)
-    night_color  = "#000080" if default_night else st.color_picker("Night bar color", "#000080", key="c_night")
+
+    # Colors section: only if allowed; otherwise enforce defaults silently
+    if ALLOW_USER_COLOR_PICKER:
+        st.subheader("Colors")
+        default_day  = st.toggle("Use default Day color (Apple Blue)", value=True)
+        day_color    = DEFAULT_DAY_COLOR if default_day else st.color_picker("Day bar color", DEFAULT_DAY_COLOR, key="c_day")
+        default_night= st.toggle("Use default Night color (Apple Indigo)",  value=True)
+        night_color  = DEFAULT_NIGHT_COLOR if default_night else st.color_picker("Night bar color", DEFAULT_NIGHT_COLOR, key="c_night")
+    else:
+        day_color, night_color = DEFAULT_DAY_COLOR, DEFAULT_NIGHT_COLOR
+
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -264,14 +277,13 @@ if not data.empty:
         rows.append((f"Plan {i}", c, base_cost - c))
     df_costs = pd.DataFrame(rows, columns=["Plan","Total cost (NIS)","Savings vs ref. (NIS)"])
     # one decimal everywhere
-    df_costs["Total cost (NIS)"]   = df_costs["Total cost (NIS)"].astype(float)
+    df_costs["Total cost (NIS)"]      = df_costs["Total cost (NIS)"].astype(float)
     df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
 
     # winner (only among "Plan *" rows)
     plan_rows = df_costs[df_costs["Plan"].str.startswith("Plan")]
     min_cost = plan_rows["Total cost (NIS)"].min() if not plan_rows.empty else np.inf
 
-    # base table styles (force dark row background to avoid white gaps)
     base_styles = [
         {"selector":"th","props":[("background-color","#0d1117"),("color","#e6edf3"),("border","1px solid #30363d")]},
         {"selector":"td","props":[("background-color","#0d1117"),("color","#e6edf3"),("border","1px solid #30363d")]},
