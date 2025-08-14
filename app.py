@@ -1,4 +1,10 @@
-# app.py — Energy Plan Analyzer (robust CSV loader + theme + winner text highlight)
+# app.py — Energy Plan Analyzer
+# - Robust CSV loader (Heb/Eng, UTF-8/CP1255, header autodetect)
+# - Light/Dark mode toggle (top-right)
+# - Plot defaults: Day #6200EE, Night #03DAC6
+# - Plans 1–3 shown; columns for Plan 4 & Plan 5 with dedicated [+ Add] / [Remove] buttons
+# - Cost Comparison: winner row keeps default background; text only is light green (#90EE90)
+
 import io, re
 import numpy as np
 import pandas as pd
@@ -6,12 +12,12 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 # ===================== Config =====================
-DEFAULT_PRICE_KWH   = 64.02  # NIS per kWh (reference row)
-DAY_COLOR_DEFAULT   = "#6200EE"   # Day (purple)
-NIGHT_COLOR_DEFAULT = "#03DAC6"   # Night (teal)
-ALLOW_COLOR_CHANGE  = False       # user color pickers off
-MAX_PLANS           = 5
-NIGHT_START, NIGHT_END = 23, 7    # night window for split
+DEFAULT_PRICE_KWH     = 0.6402     # NIS per kWh (reference & default for plans)
+DAY_COLOR_DEFAULT     = "#6200EE"  # Day (purple)
+NIGHT_COLOR_DEFAULT   = "#03DAC6"  # Night (teal)
+ALLOW_COLOR_CHANGE    = False      # user color pickers off
+MAX_PLANS             = 5
+NIGHT_START, NIGHT_END = 23, 7     # night window for split
 
 PLOT_WIDTH_INCHES  = 12
 PLOT_HEIGHT_INCHES = 6
@@ -25,28 +31,25 @@ st.set_page_config(page_title="Electricity Consumption Dashboard", layout="wide"
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = True  # default dark
 
-top_l, top_sp, top_r = st.columns([9, 1, 2])
-with top_l:
+hdr_l, _, hdr_r = st.columns([9, 1, 2])
+with hdr_l:
     st.markdown(
         """
 <div style="margin:0 0 .3rem 0;">
   <h3 style="margin:0;">Electricity Consumption Dashboard</h3>
   <p style="margin:.2rem 0 0 0;opacity:.8;">
-    Created by <strong>Shmulik Edelman</strong>. Upload your CSV, visualize day vs. night usage, and compare up to five pricing plans.
+    Created by <strong>Shmulik Edelman</strong>. Upload your CSV, visualize day vs. night usage, and compare pricing plans.
   </p>
 </div>
 """,
         unsafe_allow_html=True,
     )
-with top_r:
+with hdr_r:
+    # toggle (newer Streamlit) or checkbox (fallback)
     if hasattr(st, "toggle"):
-        st.session_state.dark_mode = bool(
-            st.toggle("🌙 Dark mode", value=st.session_state.dark_mode, key="__dark_toggle__")
-        )
+        st.session_state.dark_mode = bool(st.toggle("🌙 Dark mode", value=st.session_state.dark_mode))
     else:
-        st.session_state.dark_mode = bool(
-            st.checkbox("🌙 Dark mode", value=st.session_state.dark_mode, key="__dark_checkbox__")
-        )
+        st.session_state.dark_mode = bool(st.checkbox("🌙 Dark mode", value=st.session_state.dark_mode))
 
 # ===================== Theme CSS =====================
 if st.session_state.dark_mode:
@@ -89,7 +92,6 @@ HEB_KWH  = ['צריכה בקוט"ש', 'צריכה בקוט""ש', "צריכה ב�
 TS_CAND  = ["timestamp", "Datetime", "DateTime", "תאריך ושעה", "תאריך_שעה"]
 
 def _find_header_line(raw_bytes: bytes) -> int:
-    """Find the first line that looks like a header (Hebrew/English date+time)."""
     text = raw_bytes.decode("utf-8", errors="replace")
     lines = text.splitlines()
     for i, ln in enumerate(lines[:300]):
@@ -98,14 +100,11 @@ def _find_header_line(raw_bytes: bytes) -> int:
     return 0
 
 def load_csv(file) -> pd.DataFrame:
-    """Return DataFrame with columns: datetime (UTC+local), kwh (float), hour (int)"""
     if file is None:
         return pd.DataFrame(columns=["datetime", "kwh", "hour"])
     raw = file.read()
 
     header_line = _find_header_line(raw)
-
-    # Try encodings and flexible sep inference
     for enc in ("utf-8", "cp1255"):
         try:
             df = pd.read_csv(io.BytesIO(raw), skiprows=header_line, encoding=enc, sep=None, engine="python")
@@ -114,17 +113,14 @@ def load_csv(file) -> pd.DataFrame:
         except Exception:
             df = None
     if df is None or df.empty:
-        st.error("Could not parse CSV (encoding/format). Try exporting again or share a sample.")
+        st.error("Could not parse CSV (encoding/format).")
         return pd.DataFrame(columns=["datetime", "kwh", "hour"])
 
-    # Normalize column names (strip + collapse spaces)
     df.columns = [re.sub(r"\s+", " ", str(c)).strip() for c in df.columns]
 
-    # Try direct timestamp path
     ts_col = next((c for c in df.columns if any(t.lower() == str(c).lower() for t in TS_CAND)), None)
     kwh_col = next((c for c in df.columns if any(k == c for k in HEB_KWH)), None)
 
-    # If not found, try date+time mapping
     if ts_col is None:
         date_col = next((c for c in df.columns if any(d == c for d in HEB_DATE)), None)
         time_col = next((c for c in df.columns if any(t == c for t in HEB_TIME)), None)
@@ -132,7 +128,6 @@ def load_csv(file) -> pd.DataFrame:
             df["__timestamp__"] = df[date_col].astype(str) + " " + df[time_col].astype(str)
             ts_col = "__timestamp__"
 
-    # As a last resort, guess numeric column for kWh if not found
     if kwh_col is None:
         numeric_candidates = []
         for c in df.columns:
@@ -144,10 +139,9 @@ def load_csv(file) -> pd.DataFrame:
         kwh_col = numeric_candidates[0] if numeric_candidates else None
 
     if ts_col is None or kwh_col is None:
-        st.error("Could not locate timestamp and energy columns in the CSV.")
+        st.error("Could not locate timestamp and kWh columns.")
         return pd.DataFrame(columns=["datetime", "kwh", "hour"])
 
-    # Parse datetime (dayfirst because IEC exports are usually dd/mm/yyyy)
     dt = pd.to_datetime(df[ts_col], dayfirst=True, errors="coerce")
     kwh = pd.to_numeric(df[kwh_col], errors="coerce")
 
@@ -159,9 +153,8 @@ def load_csv(file) -> pd.DataFrame:
     out["hour"] = out["datetime"].dt.hour
     return out.reset_index(drop=True)
 
-# ===================== Helpers =====================
+# ===================== Aggregation & Plot =====================
 def aggregate_week(df: pd.DataFrame) -> pd.DataFrame:
-    """Weekly stacked totals: day_kwh, night_kwh by ISO week."""
     if df.empty:
         return pd.DataFrame(columns=["label", "day_kwh", "night_kwh"])
     is_night = (df["hour"] >= NIGHT_START) | (df["hour"] < NIGHT_END)
@@ -210,6 +203,7 @@ def plot_stacked(df_agg: pd.DataFrame, title: str, day_color: str, night_color: 
     fig.tight_layout()
     st.pyplot(fig)
 
+# ===================== Costing =====================
 def compute_cost(df: pd.DataFrame, mode: str, price_kwh: float, discount_pct: float,
                  start_hour: int | None = None, end_hour: int | None = None) -> float:
     if df.empty:
@@ -220,25 +214,22 @@ def compute_cost(df: pd.DataFrame, mode: str, price_kwh: float, discount_pct: fl
     if mode == "All day":
         return total * price_kwh * (1 - discount_pct/100.0)
 
-    # By hour
     sh = 0 if start_hour is None else int(start_hour)
     eh = 0 if end_hour   is None else int(end_hour)
-
     if sh == eh:
-        mask = np.ones(len(df), dtype=bool)  # whole day
+        mask = np.ones(len(df), dtype=bool)
     elif sh < eh:
         mask = (df["hour"] >= sh) & (df["hour"] < eh)
     else:
-        # wraps over midnight (e.g., 23→7)
         mask = (df["hour"] >= sh) | (df["hour"] < eh)
 
     win = df.loc[mask, "kwh"].sum()
     rest = total - win
     return rest * price_kwh + win * price_kwh * (1 - discount_pct/100.0)
 
-# ===================== Session for extra plans =====================
-if "num_plans" not in st.session_state:
-    st.session_state.num_plans = 3  # show 3 by default
+# ===================== Session for extra plan columns =====================
+if "plan4_visible" not in st.session_state: st.session_state.plan4_visible = False
+if "plan5_visible" not in st.session_state: st.session_state.plan5_visible = False
 
 # ===================== TOP: Controls + Chart =====================
 left, right = st.columns([4, 8], gap="large")
@@ -249,18 +240,18 @@ with left:
     uploaded = st.file_uploader("Electricity CSV", type=["csv"])
 
     st.subheader("Aggregation")
-    granularity = st.radio("Choose", ["Week"], horizontal=True, index=0)
+    st.radio("Choose", ["Week"], horizontal=True, index=0, key="gran")  # only Week for now
 
     # Colors (locked by default)
     if ALLOW_COLOR_CHANGE:
         st.subheader("Colors")
-        day_color = st.color_picker("Day bar", DAY_COLOR_DEFAULT, key="c_day")
+        day_color   = st.color_picker("Day bar",   DAY_COLOR_DEFAULT,   key="c_day")
         night_color = st.color_picker("Night bar", NIGHT_COLOR_DEFAULT, key="c_night")
     else:
         day_color, night_color = DAY_COLOR_DEFAULT, NIGHT_COLOR_DEFAULT
 
     st.subheader("Reference price")
-    ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_PRICE_KWH, step=0.01, format="%.2f")
+    ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_PRICE_KWH, step=0.01, format="%.4f")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
@@ -270,53 +261,83 @@ with right:
     if not data.empty:
         st.caption(f"Loaded {len(data):,} rows. Range: {data['datetime'].min().date()} → {data['datetime'].max().date()}")
         agg_week = aggregate_week(data)
-        plot_stacked(agg_week, "Consumption (Week) - Day vs Night",
-                     day_color, night_color, dark=st.session_state.dark_mode)
+        plot_stacked(agg_week, "Consumption (Week) - Day vs Night", day_color, night_color, dark=st.session_state.dark_mode)
     else:
         st.info("Upload a CSV to see plot and pricing.")
-        agg_week = pd.DataFrame()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ===================== BOTTOM: Full‑width Plans + Cost Comparison =====================
+# ===================== BOTTOM: Plans + Cost Comparison =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("Pricing Plans")
 
-# Add/Remove plan buttons
-btn_add, btn_remove = st.columns(2)
-with btn_add:
-    if st.button("＋ Add Plan", use_container_width=True):
-        if st.session_state.num_plans < MAX_PLANS:
-            st.session_state.num_plans += 1
-with btn_remove:
-    if st.button("– Remove Plan", use_container_width=True):
-        if st.session_state.num_plans > 3:
-            st.session_state.num_plans -= 1
-
-# Plans 1..N left → right
+# 5 columns left→right: Plan1, Plan2, Plan3, (Plan4/placeholder), (Plan5/placeholder)
+cols = st.columns(5, gap="large")
 plans = []
-cols = st.columns(st.session_state.num_plans, gap="large")
-for i, col in enumerate(cols):
+
+def plan_card(col, idx, default_mode="All day", default_price=None, default_discount=0.0,
+              default_start=23, default_end=7, allow_remove=False):
+    if default_price is None: default_price = ref_price
     with col:
-        st.markdown(f"**Plan {i+1}**")
-        mode = st.selectbox(f"Mode P{i+1}", ["All day", "By hour"], key=f"mode_{i}")
-        price_val = st.number_input(f"Price P{i+1} (NIS/kWh)", value=ref_price, step=0.01, format="%.2f", key=f"price_{i}")
-        discount = st.number_input(f"Discount % P{i+1}", value=0.0, step=0.1, format="%.1f", key=f"disc_{i}")
+        header_cols = st.columns([1, 1]) if allow_remove else None
+        if allow_remove:
+            with header_cols[0]:
+                st.markdown(f"**Plan {idx}**")
+            with header_cols[1]:
+                if st.button(f"Remove {idx}", key=f"rm_{idx}"):
+                    st.session_state[f"plan{idx}_visible"] = False
+                    st.experimental_rerun()
+        else:
+            st.markdown(f"**Plan {idx}**")
+
+        mode = st.selectbox(f"Mode P{idx}", ["All day", "By hour"],
+                            index=0 if default_mode == "All day" else 1, key=f"mode_{idx}")
+        price_val = st.number_input(f"Price P{idx} (NIS/kWh)", value=float(default_price),
+                                    step=0.01, format="%.4f", key=f"price_{idx}")
+        discount = st.number_input(f"Discount % P{idx}", value=float(default_discount),
+                                   step=0.1, format="%.1f", key=f"disc_{idx}")
         if mode == "By hour":
             c1, c2 = st.columns(2)
             with c1:
-                start_h = st.number_input("Start", min_value=0, max_value=23, value=23, step=1, key=f"start_{i}")
+                start_h = st.number_input("Start", min_value=0, max_value=23,
+                                          value=int(default_start), step=1, key=f"start_{idx}")
             with c2:
-                end_h   = st.number_input("End",   min_value=0, max_value=23, value=7,  step=1, key=f"end_{i}")
+                end_h   = st.number_input("End",   min_value=0, max_value=23,
+                                          value=int(default_end), step=1, key=f"end_{idx}")
         else:
             start_h, end_h = None, None
-        plans.append((mode, price_val, discount, start_h, end_h))
+        return (mode, price_val, discount, start_h, end_h)
+
+# Plans 1..3 always visible
+plans.append(plan_card(cols[0], 1, default_mode="All day", default_price=ref_price, default_discount=6.0))
+plans.append(plan_card(cols[1], 2, default_mode="By hour", default_price=ref_price, default_discount=20.0, default_start=23, default_end=7))
+plans.append(plan_card(cols[2], 3, default_mode="All day", default_price=ref_price, default_discount=0.0))
+
+# Plan 4 placeholder or card
+with cols[3]:
+    if not st.session_state.plan4_visible:
+        st.markdown("**Plan 4**")
+        if st.button("＋ Add Plan 4", key="add4"):
+            st.session_state.plan4_visible = True
+            st.experimental_rerun()
+    else:
+        plans.append(plan_card(cols[3], 4, default_mode="All day", default_price=ref_price, allow_remove=True))
+
+# Plan 5 placeholder or card
+with cols[4]:
+    if not st.session_state.plan5_visible:
+        st.markdown("**Plan 5**")
+        if st.button("＋ Add Plan 5", key="add5"):
+            st.session_state.plan5_visible = True
+            st.experimental_rerun()
+    else:
+        plans.append(plan_card(cols[4], 5, default_mode="All day", default_price=ref_price, allow_remove=True))
 
 st.markdown("---")
 st.subheader("Cost Comparison")
 
 if not data.empty and len(plans) > 0:
     total_kwh = data["kwh"].sum()
-    base_cost = total_kwh * ref_price
+    base_cost = total_kwh * ref_price  # Reference (no discount)
     rows = [("Reference (no discount)", base_cost, 0.0)]
     for i, p in enumerate(plans, start=1):
         c = compute_cost(data, *p)
@@ -326,12 +347,12 @@ if not data.empty and len(plans) > 0:
     df_costs["Total cost (NIS)"]      = df_costs["Total cost (NIS)"].astype(float)
     df_costs["Savings vs ref. (NIS)"] = df_costs["Savings vs ref. (NIS)"].astype(float)
 
-    # Winner detection (tolerant to rounding)
+    # Winner detection tolerant to rounding
     is_plan = df_costs["Plan"].str.startswith("Plan")
     min_cost = df_costs.loc[is_plan, "Total cost (NIS)"].min() if is_plan.any() else np.inf
     winners = is_plan & np.isclose(df_costs["Total cost (NIS)"], min_cost, rtol=0.0, atol=0.05)
 
-    # Only change text color for winner (keep default background)
+    # Text-only highlight (keep default background)
     WIN_TEXT = "color: #90EE90 !important; font-weight: 700 !important;"
 
     def highlight_winner_text(row):
