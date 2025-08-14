@@ -1,4 +1,4 @@
-# streamlit_power_dashboard_multi_plan.py
+# streamlit_power_dashboard_dynamic_plans.py
 
 import io
 import re
@@ -138,6 +138,14 @@ def compute_cost(df: pd.DataFrame, price_kwh: float, mode: str, discount_pct: fl
                  start_hour: int = 0, end_hour: int = 0) -> float:
     if df.empty:
         return 0.0
+    try:
+        price_kwh = float(price_kwh)
+        discount_pct = float(discount_pct)
+        start_hour = int(start_hour)
+        end_hour = int(end_hour)
+    except Exception:
+        return 0.0
+
     cons = df.copy()
     cons["hour"] = cons["datetime"].dt.hour
     total = cons["consumption_kwh"].sum()
@@ -153,6 +161,12 @@ def compute_cost(df: pd.DataFrame, price_kwh: float, mode: str, discount_pct: fl
         win = cons.loc[mask, "consumption_kwh"].sum()
         rest = total - win
         return rest * price_kwh + win * price_kwh * (1 - discount_pct/100)
+
+# =============================
+# Session state
+# =============================
+if "visible_plans" not in st.session_state:
+    st.session_state.visible_plans = 3
 
 # =============================
 # Layout
@@ -175,8 +189,10 @@ with left:
     st.subheader("Reference price")
     ref_price = st.number_input("Electric price per kWh (NIS)", value=DEFAULT_ELECTRIC_PRICE, step=0.01, format="%.4f")
 
-    st.subheader("Number of plans")
-    num_plans = st.slider("Select number of plans", min_value=3, max_value=MAX_PLANS, value=3, step=1)
+    # Add Plan button if we can
+    if st.session_state.visible_plans < MAX_PLANS:
+        if st.button("+ Add Plan"):
+            st.session_state.visible_plans += 1
 
 with right:
     st.header("Dashboard")
@@ -190,9 +206,9 @@ with right:
 
     st.markdown("---")
     st.subheader("Pricing Plans")
-    cols = st.columns(num_plans)
+    cols = st.columns(st.session_state.visible_plans)
     plans = []
-    for idx in range(num_plans):
+    for idx in range(st.session_state.visible_plans):
         with cols[idx]:
             st.markdown(f"**Plan {idx+1}**")
             mode = st.selectbox(f"Mode P{idx+1}", ["All day", "By hour"], key=f"mode_{idx}")
@@ -212,7 +228,7 @@ with right:
         costs = []
         costs.append(("Reference (no discount)", base_cost, 0.0))
         for idx, plan in enumerate(plans):
-            c = compute_cost(data, *plan)
+            c = compute_cost(data, plan[1], plan[0], plan[2], plan[3], plan[4])
             costs.append((f"Plan {idx+1}", c, base_cost - c))
         df_costs = pd.DataFrame(costs, columns=["Plan", "Total cost (NIS)", "Savings vs ref. (NIS)"])
         df_costs["Total cost (NIS)"] = df_costs["Total cost (NIS)"].round(1)
