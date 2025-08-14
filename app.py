@@ -366,7 +366,7 @@ if not data.empty:
         {"selector":"tr","props":[("background-color", DF_TD_BG)]},
     ]
 
-    WIN_CELL  = f"background-color: {WIN_BG} !important; color: {WIN_FG} !important; font-weight: 700 !important;"
+    # WIN_CELL  = f"background-color: {WIN_BG} !important; color: {WIN_FG} !important; font-weight: 700 !important;"
     WIN_CELL = "background-color: #90EE90 !important; color: #000000 !important; font-weight: 700 !important;"
 
     def highlight_best(row):
